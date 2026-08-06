@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.Card.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="postSplashScreenTheme">@style/Theme.Card</item>
+    </style>
+
+    <style name="Theme.Card" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

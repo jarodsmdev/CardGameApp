@@ -1,0 +1,68 @@
+# Dependencias / build
+.gradle/
+build/
+target/
+node_modules/
+dist/
+*.apk
+*.aab
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.vscode/*.code-workspace
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Entornos / secretos (nunca en el repo)
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+local.properties
+secrets/
+
+# Logs y datos locales
+*.log
+*.tmp
+.pytest_cache/
+.coverage
+sonar-project.properties
+
+# Android
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Angular / Node
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# Terraform (state y caché local)
+terraform/**/.terraform/
+terraform/**/*.tfstate
+terraform/**/*.tfstate.*
+terraform/**/crash.log
+terraform/**/.tfvars
+!terraform/**/terraform.tfvars
