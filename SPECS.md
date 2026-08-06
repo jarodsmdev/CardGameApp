@@ -241,6 +241,7 @@ tradición de la Carioca chilena). Resumen de requisitos:
 | FR-CAR-13 | **Abandono de ronda:** el jugador puede **decidir no seguir jugando** en cualquier momento (con confirmación). El abandono aplica a la **ronda actual**: se registra `PLAYER_ABANDONED_ROUND`. Los demás jugadores **confirman si continúan a la siguiente ronda**; si confirman, la partida **continúa a la siguiente ronda sin el que abandona**; si no, la partida **termina** (`GAME_END`, `FORFEIT`). En todos los casos el servidor persiste y **libera los recursos**. | MUST |
 | FR-CAR-14 | **Carioca admite de 2 a 4 jugadores como máximo.** El sistema **no permite agregar más** (validación en sala, motor y backend). La baraja es **fija**: siempre los 2 juegos (108 cartas), sin importar el nº de jugadores. | MUST |
 | FR-CAR-15 | **Timeout de turno:** si el jugador **no elige a tiempo**, el motor juega **aleatorio** por él (roba y descarta legales). Si el jugador acumula **2 timeouts** en la partida, se considera **abandono** (aplica la política de `FR-CAR-13`). | MUST |
+| FR-CAR-16 | **Diseño de cartas personalizable** con opciones predefinidas: reverso (colores sólidos y patrones, **configurable por separado para cada uno de los 2 mazos** de §4.1), frontal (bordes) y joker (estilos; el joker **sin colorear** siempre se muestra en blanco y negro). La elección se hace en la **pantalla de ajustes** con **vista previa en vivo** y se **persiste** entre sesiones; aplica al renderizado de todas las cartas de la partida. | SHOULD |
 
 ### 6.6 Extensiones futuras (EXT)
 

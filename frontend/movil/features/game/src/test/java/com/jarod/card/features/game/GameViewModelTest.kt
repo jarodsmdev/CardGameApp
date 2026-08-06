@@ -7,6 +7,11 @@ import com.jarod.card.domain.games.carioca.CariocaRuleset
 import com.jarod.card.domain.games.carioca.ComboSpec
 import com.jarod.card.domain.games.carioca.ComboType
 import com.jarod.card.domain.games.carioca.Stage
+import com.jarod.card.features.game.cardskin.BackDesign
+import com.jarod.card.features.game.cardskin.CardSkin
+import com.jarod.card.features.game.cardskin.CardSkinStore
+import com.jarod.card.features.game.cardskin.FrontDesign
+import com.jarod.card.features.game.cardskin.JokerStyle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -22,6 +27,13 @@ class GameViewModelTest {
     @get:Rule
     val mainRule = MainDispatcherRule()
 
+    private class FakeSkinStore(var stored: CardSkin = CardSkin()) : CardSkinStore {
+        override fun read(): CardSkin = stored
+        override fun save(skin: CardSkin) {
+            stored = skin
+        }
+    }
+
     private fun provider(): DispatchersProvider =
         DispatchersProvider(main = mainRule.testDispatcher, default = mainRule.testDispatcher, io = mainRule.testDispatcher)
 
@@ -33,7 +45,7 @@ class GameViewModelTest {
     )
 
     private fun newViewModel(ruleset: CariocaRuleset = shortRules(), seed: Long = 999L): GameViewModel {
-        val vm = GameViewModel(provider())
+        val vm = GameViewModel(provider(), FakeSkinStore())
         vm.startGame(ruleset, seed)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         return vm
@@ -51,6 +63,20 @@ class GameViewModelTest {
         assertEquals(CariocaPhase.PLAYING, st.phase)
         assertEquals(12, st.hands[vm.uiState.value.humanId!!]!!.size)
         assertNotNull(st.currentPlayer)
+    }
+
+    @Test
+    fun `startGame conserva el skin guardado del almacén`() {
+        val saved = CardSkin(
+            deck0 = BackDesign.ROMBOS,
+            deck1 = BackDesign.ANILLOS,
+            front = FrontDesign.DORADO,
+            joker = JokerStyle.ORO
+        )
+        val vm = GameViewModel(provider(), FakeSkinStore(saved))
+        vm.startGame(shortRules(), 999L)
+        advance()
+        assertEquals(saved, vm.uiState.value.skin)
     }
 
     @Test

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -19,7 +20,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 fun LobbyScreen(
     onOpenGame: (String) -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: LobbyViewModel = hiltViewModel()
+    viewModel: LobbyViewModel = hiltViewModel(),
+    onOpenSettings: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -42,6 +44,9 @@ fun LobbyScreen(
         )
         Button(onClick = { onOpenGame("demo") }) {
             Text("Abrir partida demo")
+        }
+        OutlinedButton(onClick = onOpenSettings) {
+            Text("Ajustes de cartas")
         }
     }
 }

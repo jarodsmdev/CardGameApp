@@ -61,6 +61,7 @@ import com.jarod.card.domain.games.carioca.ComboSpec
 import com.jarod.card.domain.games.carioca.ComboType
 import com.jarod.card.domain.games.carioca.Meld
 import com.jarod.card.domain.games.carioca.Stage
+import com.jarod.card.features.game.cardskin.CardSkin
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
@@ -91,6 +92,7 @@ fun GameScreen(
                 botsThinking = ui.botsThinking,
                 error = ui.error,
                 roomId = roomId,
+                skin = ui.skin,
                 onDrawStock = viewModel::drawFromStock,
                 onDrawDiscard = viewModel::drawFromDiscard,
                 onMeld = viewModel::autoMeld,
@@ -112,6 +114,7 @@ private fun CariocaBoard(
     botsThinking: Boolean,
     error: String?,
     roomId: String,
+    skin: CardSkin,
     onDrawStock: () -> Unit,
     onDrawDiscard: () -> Unit,
     onMeld: () -> Unit,
@@ -134,14 +137,14 @@ private fun CariocaBoard(
         Column(
             modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
         ) {
-            TableSection(st, humanId)
+            TableSection(st, humanId, skin)
         }
 
-        StockDiscardRow(st, myTurn, onDrawStock, onDrawDiscard)
+        StockDiscardRow(st, myTurn, skin, onDrawStock, onDrawDiscard)
 
         ActionBar(st, humanId, myTurn, onMeld, onLayOff)
 
-        HandRow(st, humanId, myTurn, onDiscard)
+        HandRow(st, humanId, myTurn, skin, onDiscard)
 
         if (human.isEmpty()) {
             Text(
@@ -258,7 +261,7 @@ private fun ScoresRow(st: CariocaState, humanId: PlayerId) {
 }
 
 @Composable
-private fun TableSection(st: CariocaState, humanId: PlayerId) {
+private fun TableSection(st: CariocaState, humanId: PlayerId, skin: CardSkin) {
     val meldsByPlayer = st.table.filterValues { it.isNotEmpty() }
     Text("Mesa", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
     if (meldsByPlayer.isEmpty()) {
@@ -277,7 +280,7 @@ private fun TableSection(st: CariocaState, humanId: PlayerId) {
                 )
                 Row(Modifier.horizontalScroll(rememberScrollState())) {
                     melds.forEach { meld ->
-                        MeldRow(meld)
+                        MeldRow(meld, skin)
                     }
                 }
             }
@@ -286,13 +289,13 @@ private fun TableSection(st: CariocaState, humanId: PlayerId) {
 }
 
 @Composable
-private fun MeldRow(meld: Meld) {
+private fun MeldRow(meld: Meld, skin: CardSkin) {
     Row(
         modifier = Modifier.padding(end = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         meld.cards.forEach { card ->
-            CardFace(card = card, width = 44.dp, height = 62.dp)
+            CardFace(card = card, width = 44.dp, height = 62.dp, skin = skin)
         }
     }
 }
@@ -301,6 +304,7 @@ private fun MeldRow(meld: Meld) {
 private fun StockDiscardRow(
     st: CariocaState,
     myTurn: Boolean,
+    skin: CardSkin,
     onDrawStock: () -> Unit,
     onDrawDiscard: () -> Unit
 ) {
@@ -311,7 +315,7 @@ private fun StockDiscardRow(
     ) {
         // Mazo
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CardBack()
+            CardBack(skin = skin)
             Text("${st.stock.size}", style = MaterialTheme.typography.bodySmall)
             if (myTurn && st.stage == Stage.DRAW) {
                 OutlinedButton(onClick = onDrawStock, enabled = st.stock.isNotEmpty()) {
@@ -323,9 +327,9 @@ private fun StockDiscardRow(
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             val top = st.discard.lastOrNull()
             if (top != null) {
-                CardFace(card = top)
+                CardFace(card = top, skin = skin)
             } else {
-                CardBack(width = 44.dp, height = 62.dp)
+                CardBack(width = 44.dp, height = 62.dp, skin = skin)
             }
             Text("Pozo ${st.discard.size}", style = MaterialTheme.typography.bodySmall)
             if (myTurn && st.stage == Stage.DRAW) {
@@ -382,6 +386,7 @@ private fun HandRow(
     st: CariocaState,
     humanId: PlayerId,
     myTurn: Boolean,
+    skin: CardSkin,
     onDiscard: (String) -> Unit
 ) {
     val hand = st.hands[humanId] ?: emptyList()
@@ -532,6 +537,7 @@ private fun HandRow(
                     card = card,
                     width = cardWidth,
                     height = cardHeight,
+                    skin = skin,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .zIndex(if (isDragged) 1f else 0f)

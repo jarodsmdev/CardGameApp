@@ -17,6 +17,8 @@ import com.jarod.card.domain.games.carioca.DrawFromDiscard
 import com.jarod.card.domain.games.carioca.DrawFromStock
 import com.jarod.card.domain.games.carioca.MeldAction
 import com.jarod.card.domain.games.carioca.Stage
+import com.jarod.card.features.game.cardskin.CardSkin
+import com.jarod.card.features.game.cardskin.CardSkinStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -31,15 +33,17 @@ data class GameUiState(
     val state: CariocaState? = null,
     val humanId: PlayerId? = null,
     val error: String? = null,
-    val botsThinking: Boolean = false
+    val botsThinking: Boolean = false,
+    val skin: CardSkin = CardSkin()
 )
 
 @HiltViewModel
 class GameViewModel @Inject constructor(
-    private val dispatchers: DispatchersProvider
+    private val dispatchers: DispatchersProvider,
+    private val skinStore: CardSkinStore
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(GameUiState())
+    private val _uiState = MutableStateFlow(GameUiState(skin = skinStore.read()))
     val uiState: StateFlow<GameUiState> = _uiState.asStateFlow()
 
     private val rng = java.util.Random()
@@ -55,7 +59,12 @@ class GameViewModel @Inject constructor(
         viewModelScope.launch {
             val players = listOf(PlayerId("tu")) + (1..3).map { PlayerId("bot$it") }
             val transition = CariocaGame.createGame(players, ruleset, gameSeed)
-            _uiState.value = GameUiState(state = transition.state, humanId = players.first())
+            _uiState.value = _uiState.value.copy(
+                state = transition.state,
+                humanId = players.first(),
+                botsThinking = false,
+                error = null
+            )
             runBotsIfNeeded()
         }
     }
