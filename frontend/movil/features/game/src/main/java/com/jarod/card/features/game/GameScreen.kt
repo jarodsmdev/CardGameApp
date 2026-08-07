@@ -43,6 +43,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -60,6 +62,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -843,61 +846,33 @@ private fun GameEndDialog(
     onRestart: () -> Unit
 ) {
     val rankings = st.result?.rankings.orEmpty().sortedBy { it.rank }
+    // Construir entries para el Scoreboard
+    val entries = rankings.map { r ->
+        val isMe = humanId != null && r.playerId == humanId
+        ScoreboardEntry(
+            rank = r.rank,
+            playerId = r.playerId,
+            name = nameOf(r.playerId, humanId),
+            totalScore = r.score,
+            roundsWon = r.roundsWon,
+            isCurrentPlayer = isMe,
+            perRoundScores = emptyList() // TODO: necesitaría tracking por ronda
+        )
+    }
+
     AlertDialog(
         onDismissRequest = {},
         title = { Text("Fin de la partida") },
         text = {
-            Column(
-                modifier = Modifier
-                    .verticalScroll(rememberScrollState())
-                    .heightIn(max = 380.dp)
-            ) {
-                rankings.forEach { r ->
-                    Text(
-                        text = "${r.rank}. ${nameOf(r.playerId, humanId)} — ${r.score} pts (${r.roundsWon} rondas)",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-                if (gameStats != null) {
-                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                    Text(
-                        text = "Estadísticas de la partida",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    gameStats.rounds.forEach { rs ->
-                        Text(
-                            text = "Ronda ${rs.round}: ${plural(rs.laps, "vuelta")} · " +
-                                "${plural(rs.turns, "turno")} · ${formatDuration(rs.elapsedMillis)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(top = 2.dp)
-                        )
-                    }
-                    Text(
-                        text = "Total: ${plural(gameStats.totalLaps, "vuelta")} · " +
-                            "${plural(gameStats.totalTurns, "turno")} · ${formatDuration(gameStats.totalTimeMillis)}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
-                    if (cumulativeStats.gamesPlayed > 0) {
-                        Text(
-                            text = "Tus totales (${plural(cumulativeStats.gamesPlayed, "partida")}): " +
-                                "${plural(cumulativeStats.roundsPlayed, "ronda")} · " +
-                                "${plural(cumulativeStats.laps, "vuelta")} · " +
-                                "${plural(cumulativeStats.turns, "turno")} · " +
-                                formatDuration(cumulativeStats.totalTimeMillis),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 6.dp)
-                        )
-                    }
-                }
-            }
+            Scoreboard(
+                entries = entries,
+                roundCount = st.ruleset.rounds.size,
+                gameStats = gameStats,
+                cumulativeStats = cumulativeStats,
+                onDismiss = onRestart
+            )
         },
-        confirmButton = {
-            TextButton(onClick = onRestart) { Text("Jugar de nuevo") }
-        }
+        confirmButton = { } // Scoreboard ya tiene botón
     )
 }
 
@@ -908,6 +883,218 @@ private fun formatDuration(ms: Long): String {
     val min = totalSec / 60
     val sec = totalSec % 60
     return if (min > 0) "${min}m ${sec}s" else "${sec}s"
+}
+
+// ──────────────────────────────────────────────────────────────
+// Scoreboard genérico (reutilizable en cualquier juego)
+// ──────────────────────────────────────────────────────────────
+
+/** Entrada del scoreboard para un jugador. */
+data class ScoreboardEntry(
+    val rank: Int,
+    val playerId: PlayerId,
+    val name: String,
+    val totalScore: Int,
+    val roundsWon: Int,
+    val isCurrentPlayer: Boolean = false,
+    /** Puntos por ronda (índice = número de ronda - 1). */
+    val perRoundScores: List<Int> = emptyList(),
+)
+
+// Helper: fila de scores por ronda dentro del desglose
+@Composable
+private fun ScoreRow(scores: List<Int?>, totalScore: Int) {
+    Row {
+        scores.forEach { score ->
+            Text(
+                text = score?.toString() ?: "—",
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                color = if (score != null && score > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Text(
+            text = totalScore.toString(),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+/**
+ * Scoreboard genérico: tabla de posiciones con medalla, desglose por ronda,
+ * stats de la partida y stats acumuladas.
+ *
+ * Uso típico: fin de partida (GAME_END), lobby de resultados, perfil de jugador.
+ */
+@Composable
+fun Scoreboard(
+    entries: List<ScoreboardEntry>,
+    roundCount: Int,
+    gameStats: GameStats? = null,
+    cumulativeStats: CumulativeStats? = null,
+    modifier: Modifier = Modifier,
+    onDismiss: (() -> Unit)? = null,
+) {
+    val maxRounds = maxOf(roundCount, entries.flatMap { it.perRoundScores }.size)
+    Column(modifier = modifier
+        .fillMaxWidth()
+        .verticalScroll(rememberScrollState())
+        .padding(16.dp)
+    ) {
+        // ─── Cabecera: medalla + nombre + total ───
+        Column {
+            entries.forEach { entry ->
+                val medalColor = when (entry.rank) {
+                    1 -> MedalGold
+                    2 -> MedalSilver
+                    3 -> MedalBronze
+                    else -> MedalFourth
+                }
+                val bgColor = if (entry.isCurrentPlayer)
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                else MaterialTheme.colorScheme.surface
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = bgColor),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Medalla
+                        RankMedal(entry.rank)
+                        Spacer(Modifier.width(12.dp))
+                        // Nombre + indicador "Tú"
+                        Column(Modifier.weight(1f)) {
+                            Row {
+                                Text(
+                                    text = entry.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (entry.isCurrentPlayer) {
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = "(Tú)",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "${entry.roundsWon} ${plural(entry.roundsWon, "ronda")} ganadas",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        // Total score
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = "${entry.totalScore} pts",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = medalColor
+                            )
+                            if (entry.roundsWon > 0) {
+                                Text(
+                                    text = "Ganador",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MedalGold,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ─── Desglose por ronda (expandible) ───
+        if (maxRounds > 0 && entries.any { it.perRoundScores.isNotEmpty() }) {
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+            Text(
+                text = "Desglose por ronda",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(8.dp))
+            Column {
+                // Encabezado de columnas
+                Row(Modifier.fillMaxWidth()) {
+                    Text("Jugador", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1.5f))
+                    for (r in 1..maxRounds) {
+                        Text("R$r", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
+                    }
+                    Text("Total", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+                }
+                HorizontalDivider()
+                entries.forEach { entry ->
+                    val roundScores = (1..maxRounds).map { r -> entry.perRoundScores.getOrNull(r - 1) }
+                    Row(Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp)
+                        .background(
+                            if (entry.isCurrentPlayer)
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
+                            else Color.Transparent
+                        )
+                    ) {
+                        Text(entry.name, style = MaterialTheme.typography.bodyMedium, fontWeight = if (entry.isCurrentPlayer) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.weight(1.5f).padding(end = 8.dp))
+                        ScoreRow(scores = roundScores, totalScore = entry.totalScore)
+                    }
+                }
+            }
+        }
+
+        // ─── Stats de la partida ───
+        gameStats?.let { gs ->
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            Text("Estadísticas de la partida", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            Column {
+                gs.rounds.forEach { rs ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                        Text("Ronda ${rs.round}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        Text("${plural(rs.laps, "vuelta")} · ${plural(rs.turns, "turno")} · ${formatDuration(rs.elapsedMillis)}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+                    }
+                }
+                HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Text("Total", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text("${plural(gs.totalLaps, "vuelta")} · ${plural(gs.totalTurns, "turno")} · ${formatDuration(gs.totalTimeMillis)}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+
+        // ─── Stats acumuladas ───
+        cumulativeStats?.let { cs ->
+            if (cs.gamesPlayed > 0) {
+                HorizontalDivider(Modifier.padding(vertical = 16.dp))
+                Text("Tus totales (${plural(cs.gamesPlayed, "partida")})", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Text("${plural(cs.roundsPlayed, "ronda")} · ${plural(cs.laps, "vuelta")} · ${plural(cs.turns, "turno")} · ${formatDuration(cs.totalTimeMillis)}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+
+        // Botón de acción si se provee
+        onDismiss?.let {
+            Spacer(Modifier.height(24.dp))
+            TextButton(onClick = it, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Text("Jugar de nuevo", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
 }
 
 // ──────────────────────────────────────────────────────────────
