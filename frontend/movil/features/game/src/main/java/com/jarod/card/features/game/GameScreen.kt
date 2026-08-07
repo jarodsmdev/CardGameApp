@@ -1,5 +1,6 @@
 package com.jarod.card.features.game
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -52,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jarod.card.core.ui.ConfirmDialog
 import com.jarod.card.domain.engine.PlayerId
 import com.jarod.card.domain.games.carioca.CariocaBot
 import com.jarod.card.domain.games.carioca.CariocaPhase
@@ -69,11 +71,15 @@ import kotlinx.coroutines.delay
 @Composable
 fun GameScreen(
     roomId: String,
+    onExit: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: GameViewModel = hiltViewModel()
 ) {
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
     val st = ui.state
+
+    var showExitDialog by remember { mutableStateOf(false) }
+    BackHandler(enabled = !showExitDialog) { showExitDialog = true }
 
     LaunchedEffect(ui.error) {
         if (ui.error != null) {
@@ -104,6 +110,19 @@ fun GameScreen(
 
     if (st?.phase == CariocaPhase.GAME_END && st.result != null) {
         GameEndDialog(st = st, humanId = ui.humanId, onRestart = viewModel::startGame)
+    }
+
+    if (showExitDialog) {
+        ConfirmDialog(
+            title = "Salir de la partida",
+            text = "¿Quieres salir? Perderás la partida en curso.",
+            confirmText = "Salir",
+            onConfirm = {
+                showExitDialog = false
+                onExit()
+            },
+            onDismiss = { showExitDialog = false }
+        )
     }
 }
 
