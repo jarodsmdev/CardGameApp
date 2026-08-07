@@ -17,6 +17,7 @@ import com.jarod.card.domain.games.carioca.DiscardAction
 import com.jarod.card.domain.games.carioca.DrawFromDiscard
 import com.jarod.card.domain.games.carioca.DrawFromStock
 import com.jarod.card.domain.games.carioca.MeldAction
+import com.jarod.card.domain.games.carioca.RoundEnd
 import com.jarod.card.domain.games.carioca.Stage
 import com.jarod.card.features.game.cardskin.CardSkin
 import com.jarod.card.features.game.cardskin.CardSkinStore
@@ -42,7 +43,15 @@ data class GameUiState(
     val secondsLeft: Int = -1,
     val gameStats: GameStats? = null,
     val cumulativeStats: CumulativeStats = CumulativeStats(),
-    val skin: CardSkin = CardSkin()
+    val skin: CardSkin = CardSkin(),
+    /** Info de fin de ronda para mostrar diálogo (ganador, puntos, nº ronda). */
+    val roundEndInfo: RoundEndInfo? = null
+)
+
+data class RoundEndInfo(
+    val round: Int,
+    val winner: PlayerId,
+    val pointsGained: Map<PlayerId, Int>
 )
 
 @HiltViewModel
@@ -114,6 +123,10 @@ class GameViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(error = null)
     }
 
+    fun clearRoundEnd() {
+        _uiState.value = _uiState.value.copy(roundEndInfo = null)
+    }
+
     private inline fun humanAction(build: (PlayerId) -> CariocaAction?) {
         val st = currentState() ?: return
         val human = _uiState.value.humanId ?: return
@@ -131,10 +144,28 @@ class GameViewModel @Inject constructor(
             return
         }
         val transition = CariocaGame.perform(st, action)
-        _uiState.value = _uiState.value.copy(state = transition.state, error = null)
-        trackState(transition.state)
+        applyTransition(transition)
         syncTurnTimer()
         runBotsIfNeeded()
+    }
+
+    /** Aplica una transición, captura eventos RoundEnd y actualiza stats. */
+    private fun applyTransition(transition: com.jarod.card.domain.engine.GameTransition<CariocaState>) {
+        // Buscar evento RoundEnd en la transición
+        val roundEndEvent = transition.events.firstOrNull { it is RoundEnd } as? RoundEnd
+        val newRoundEndInfo = roundEndEvent?.let {
+            RoundEndInfo(
+                round = _uiState.value.state?.roundIndex ?: 1, // ronda que acaba de terminar
+                winner = it.winner,
+                pointsGained = it.pointsGained
+            )
+        }
+        _uiState.value = _uiState.value.copy(
+            state = transition.state,
+            error = null,
+            roundEndInfo = newRoundEndInfo
+        )
+        trackState(transition.state)
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -164,10 +195,15 @@ class GameViewModel @Inject constructor(
                     val botRng = java.util.Random()
                     val action = CariocaBot.chooseAction(current, player, botRng)
                     val vr = CariocaGame.canPerform(current, action)
-                    current = if (vr.valid) {
-                        CariocaGame.perform(current, action).state
+                    val transition = if (vr.valid) {
+                        CariocaGame.perform(current, action)
                     } else {
-                        fallbackAction(current, player).let { CariocaGame.perform(current, it).state }
+                        fallbackAction(current, player).let { CariocaGame.perform(current, it) }
+                    }
+                    // Aplicar transición en hilo principal para capturar RoundEnd
+                    withContext(dispatchers.main) {
+                        applyTransition(transition)
+                        current = transition.state
                     }
                 }
                 withContext(dispatchers.main) {

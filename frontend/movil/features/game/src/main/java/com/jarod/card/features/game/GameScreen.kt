@@ -87,7 +87,9 @@ import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarod.card.core.ui.ConfirmDialog
+import com.jarod.card.domain.engine.GameResult
 import com.jarod.card.domain.engine.PlayerId
+import com.jarod.card.domain.engine.PlayerRanking
 import com.jarod.card.domain.games.carioca.CariocaBot
 import com.jarod.card.domain.games.carioca.CariocaPhase
 import com.jarod.card.domain.games.carioca.CariocaRound
@@ -99,6 +101,8 @@ import com.jarod.card.domain.games.carioca.Stage
 import com.jarod.card.features.game.cardskin.CardSkin
 import com.jarod.card.features.game.stats.CumulativeStats
 import com.jarod.card.features.game.stats.GameStats
+import com.jarod.card.features.game.GameViewModel
+import com.jarod.card.features.game.RoundEndInfo
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
@@ -301,6 +305,16 @@ fun GameScreen(
             gameStats = ui.gameStats,
             cumulativeStats = ui.cumulativeStats,
             onRestart = viewModel::startGame
+        )
+    }
+
+    // Diálogo de fin de ronda
+    ui.roundEndInfo?.let { info ->
+        RoundEndDialog(
+            info = info,
+            st = st!!,
+            humanId = ui.humanId,
+            onContinue = { viewModel.clearRoundEnd() }
         )
     }
 
@@ -873,6 +887,74 @@ private fun GameEndDialog(
             )
         },
         confirmButton = { } // Scoreboard ya tiene botón
+    )
+}
+
+// ──────────────────────────────────────────────────────────────
+// Diálogo de fin de ronda
+// ──────────────────────────────────────────────────────────────
+
+@Composable
+private fun RoundEndDialog(
+    info: RoundEndInfo,
+    st: CariocaState,
+    humanId: PlayerId?,
+    onContinue: () -> Unit
+) {
+    // Construir entries del scoreboard con scores actuales
+    val rankings = st.players
+        .map { p ->
+            val s = st.scores[p]!!
+            val w = st.roundsWon[p]!!
+            PlayerRanking(p, s, w, 0)
+        }
+        .sortedWith(compareBy({ it.score }, { -it.roundsWon }))
+        .withIndex()
+        .map { (i, r) -> r.copy(rank = i + 1) }
+
+    val entries = rankings.map { r ->
+        val isMe = humanId != null && r.playerId == humanId
+        ScoreboardEntry(
+            rank = r.rank,
+            playerId = r.playerId,
+            name = nameOf(r.playerId, humanId),
+            totalScore = r.score,
+            roundsWon = r.roundsWon,
+            isCurrentPlayer = isMe,
+            perRoundScores = emptyList() // TODO: tracking por ronda
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text("Fin de la ronda ${info.round}") },
+        text = {
+            Column(modifier = Modifier.padding(16.dp)) {
+                // Ganador de la ronda
+                val winnerName = nameOf(info.winner, humanId)
+                val pointsGained = info.pointsGained[info.winner] ?: 0
+                Text(
+                    text = "🏆 $winnerName gana la ronda (${pointsGained} pts)",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MedalGold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+                )
+
+                // Scoreboard compacto
+                Scoreboard(
+                    entries = entries,
+                    roundCount = st.ruleset.rounds.size,
+                    gameStats = null,
+                    cumulativeStats = null,
+                    onDismiss = onContinue
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onContinue) { Text("Continuar") }
+        }
     )
 }
 
