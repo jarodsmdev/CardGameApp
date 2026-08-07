@@ -317,9 +317,6 @@ private fun PlayerCard(
             Column {
                 Text(name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 ScoreChip(score)
-                if (melded) {
-                    Text("bajado", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                }
             }
             CountBadge(handCount, offsetX = 4.dp, offsetY = (-6).dp)
         }
@@ -338,9 +335,13 @@ private fun TableSection(st: CariocaState, humanId: PlayerId, skin: CardSkin) {
         )
     } else {
         meldsByPlayer.forEach { (owner, melds) ->
-            Column(Modifier.padding(vertical = 4.dp)) {
+            Row(
+                modifier = Modifier.padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
                     text = nameOf(owner, humanId),
+                    modifier = Modifier.graphicsLayer { rotationZ = -90f },
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold
                 )
