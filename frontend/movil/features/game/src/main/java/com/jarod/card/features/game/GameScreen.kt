@@ -305,7 +305,6 @@ fun GameScreen(
         ConfirmDialog(
             title = "Salir de la partida",
             text = "¿Quieres salir? Perderás la partida en curso.",
-            confirmText = "Salir",
             onConfirm = {
                 showExitDialog = false
                 onExit()

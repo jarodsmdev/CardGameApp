@@ -145,18 +145,17 @@ fun CardDesignScreen(
         )
     }
 
-    if (showExitDialog) {
-        ConfirmDialog(
-            title = "Salir de ajustes",
-            text = "¿Quieres volver al lobby? El diseño se guarda automáticamente.",
-            confirmText = "Salir",
-            onConfirm = {
-                showExitDialog = false
-                onBack()
-            },
-            onDismiss = { showExitDialog = false }
-        )
-    }
+//    if (showExitDialog) {
+//        ConfirmDialog(
+//            title = "Salir de ajustes",
+//            text = "¿Quieres volver al lobby? El diseño se guarda automáticamente.",
+//            onConfirm = {
+//                showExitDialog = false
+//                onBack()
+//            },
+//            onDismiss = { showExitDialog = false }
+//        )
+//    }
 }
 
 @Composable
