@@ -6,6 +6,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
@@ -29,7 +30,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -49,7 +49,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -339,28 +338,32 @@ private fun StockDiscardRow(
             // El reverso mostrado es el del mazo al que pertenece la carta de
             // arriba: al robar cambia y alterna entre los 2 diseños de reverso.
             val top = st.stock.lastOrNull()
-            CardBack(skin = skin, deckIndex = top?.setIndex ?: 0)
+            CardBack(
+                modifier = Modifier.clickable(
+                    enabled = myTurn && st.stage == Stage.DRAW && st.stock.isNotEmpty(),
+                    onClick = onDrawStock
+                ),
+                skin = skin,
+                deckIndex = top?.setIndex ?: 0
+            )
             Text("${st.stock.size}", style = MaterialTheme.typography.bodySmall)
-            if (myTurn && st.stage == Stage.DRAW) {
-                OutlinedButton(onClick = onDrawStock, enabled = st.stock.isNotEmpty()) {
-                    Text("Robar del mazo", fontSize = 11.sp)
-                }
-            }
         }
         // Pozo
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             val top = st.discard.lastOrNull()
             if (top != null) {
-                CardFace(card = top, skin = skin)
+                CardFace(
+                    card = top,
+                    skin = skin,
+                    modifier = Modifier.clickable(
+                        enabled = myTurn && st.stage == Stage.DRAW && st.discard.isNotEmpty(),
+                        onClick = onDrawDiscard
+                    )
+                )
             } else {
                 CardBack(width = 44.dp, height = 62.dp, skin = skin)
             }
             Text("Pozo ${st.discard.size}", style = MaterialTheme.typography.bodySmall)
-            if (myTurn && st.stage == Stage.DRAW) {
-                OutlinedButton(onClick = onDrawDiscard, enabled = st.discard.isNotEmpty()) {
-                    Text("Del pozo", fontSize = 11.sp)
-                }
-            }
         }
     }
 }
