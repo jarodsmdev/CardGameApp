@@ -446,7 +446,7 @@ private fun HandRow(
         val stepMaxPx = with(density) { 50.dp.toPx() }
         val liftPx = with(density) { liftHeight.toPx() }
         val shadowPx = with(density) { 16.dp.toPx() }
-        val maxWidthPx = constraints.maxWidth.toFloat()
+        val maxWidthPx = with(density) { maxWidth.toPx() }
         val n = order.size
 
         // La mano completa siempre cabe: el paso de superposición se calcula para que
@@ -620,14 +620,10 @@ private fun describeRound(round: CariocaRound): String =
 private fun describeCombo(spec: ComboSpec): String {
     val countText = if (spec.count == 1) "1 " else "${spec.count} "
     return when (spec.type) {
-        // Un trío siempre son exactamente 3 cartas: no lleva longitud.
         ComboType.TRIPLE -> "${countText}trío${if (spec.count > 1) "s" else ""}"
         ComboType.RUN -> when (spec.exactLength) {
-            13 -> "Escala Real (13 cartas)"
-            else -> {
-                val length = spec.exactLength?.let { "de $it cartas" } ?: "de ${spec.minLength}+ cartas"
-                "${countText}escala${if (spec.count > 1) "s" else ""} $length"
-            }
+            13 -> "Escala Real"
+            else -> "${countText}escala${if (spec.count > 1) "s" else ""}"
         }
     }
 }
