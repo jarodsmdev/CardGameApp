@@ -87,6 +87,28 @@ class CariocaGameTest {
     }
 
     @Test
+    fun `no se puede bajar dos veces en la misma ronda`() {
+        var res = CariocaGame.createGame(players, rules, 12345L)
+        var st = res.state
+        val current = st.currentPlayer!!
+        // Robar
+        st = CariocaGame.perform(st, DrawFromStock(current)).state
+        // Bajar 2 tríos (ronda 1 exige 2 tríos)
+        val t1 = listOf(card(Suit.HEART, Rank.FIVE), card(Suit.SPADE, Rank.FIVE), card(Suit.DIAMOND, Rank.FIVE))
+        val t2 = listOf(card(Suit.HEART, Rank.SIX), card(Suit.SPADE, Rank.SIX), card(Suit.DIAMOND, Rank.SIX))
+        val hand = t1 + t2 + st.hands[current]!!.filter { it !in t1 && it !in t2 }.take(7)
+        st = st.copy(hands = st.hands + (current to hand))
+        st = CariocaGame.perform(st, MeldAction(current, listOf(Meld.Triple(t1), Meld.Triple(t2)))).state
+        assertTrue(current in st.meldedThisRound)
+
+        // Intento de segunda bajada en la misma ronda → rechazado aunque queden cartas
+        val rest = st.hands[current]!!
+        val res2 = CariocaGame.canPerform(st, MeldAction(current, listOf(Meld.Triple(rest.take(3)))))
+        assertFalse(res2.valid)
+        assertTrue(res2.reason!!.contains("Ya te bajaste"))
+    }
+
+    @Test
     fun `descartar fin de turno → siguiente jugador`() {
         var res = CariocaGame.createGame(players, rules, 12345L)
         var st = res.state
@@ -187,8 +209,7 @@ class CariocaGameTest {
     }
 
     @Test
-    fun `lay-off, solo si ya bajó en ronda anterior`() {
-        // Simular dos rondas es complejo; testear flujo básico inyectando estado
+    fun `lay-off a juegos ajenos bloqueado si no se ha bajado en la ronda actual`() {
         var res = CariocaGame.createGame(players, rules, 12345L)
         var st = res.state
         val current = st.currentPlayer!!
@@ -201,10 +222,8 @@ class CariocaGameTest {
         hand.addAll(st.hands[current]!!.filter { it !in hand }.take(7))
         st = st.copy(hands = st.hands + (current to hand))
         st = CariocaGame.perform(st, MeldAction(current, listOf(Meld.Triple(hand.take(3)), Meld.Triple(hand.drop(3).take(3))))).state
-        // Robar y descartar para pasar turno
-        val p2 = players[1]
-        // Avanzar forzosamente a p2... test de integración completo está en FullGameTest
-        // Aquí solo validamos que lay-off ajeno falla si no everMelded
+        // Un jugador que nunca se ha bajado en la ronda no puede añadir cartas a
+        // los juegos ajenos (rules.md §8)
         val other = players[1]
         val res2 = CariocaGame.canPerform(st, LayOffAction(other, hand[0].id, current, 0))
         assertFalse(res2.valid)
@@ -237,9 +256,9 @@ class CariocaGameTest {
         st = CariocaGame.perform(st, MeldAction(current, listOf(Meld.Triple(t1), Meld.Triple(t2)))).state
         assertTrue(current in st.meldedThisTurn)
 
-        // Mismo turno: no puede añadir a juegos ajenos, pero sí a los propios
+        // Mismo turno: no puede añadir cartas ni a juegos ajenos ni a los propios
         assertFalse("No debe añadir a ajenos en el turno de bajarse", CariocaGame.canPerform(st, LayOffAction(current, layCard.id, other, 0)).valid)
-        assertTrue(CariocaGame.canPerform(st, LayOffAction(current, ownLayCard.id, current, 0)).valid)
+        assertFalse("No debe añadir a sus propios juegos en el turno de bajarse", CariocaGame.canPerform(st, LayOffAction(current, ownLayCard.id, current, 0)).valid)
 
         // Termina su turno → se limpia meldedThisTurn
         val filler = st.hands[current]!!.filter { it != ownLayCard && it != layCard && it !is JokerCard }.first()

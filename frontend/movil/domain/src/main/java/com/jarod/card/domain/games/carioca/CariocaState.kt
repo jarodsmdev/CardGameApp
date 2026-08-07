@@ -27,7 +27,6 @@ data class CariocaState(
     val playedThisLap: Set<PlayerId> = emptySet(),
     val laps: Int = 0,
     val turns: Int = 0,
-    val everMelded: Set<PlayerId> = emptySet(),
     val currentPlayer: PlayerId? = null,
     val stage: Stage = Stage.DRAW,
     val scores: Map<PlayerId, Int> = emptyMap(),
