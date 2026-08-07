@@ -104,6 +104,29 @@ class CariocaGameTest {
     }
 
     @Test
+    fun `playedThisLap marca quién completó su turno y se reinicia al cerrar la vuelta`() {
+        var res = CariocaGame.createGame(players, rules, 12345L)
+        var st = res.state
+        val first = st.currentPlayer!!
+        // Primer turno: roba y descarta
+        st = CariocaGame.perform(st, DrawFromStock(first)).state
+        val drawn = st.hands[first]!!.last()
+        st = CariocaGame.perform(st, DiscardAction(first, drawn.id)).state
+        assertEquals(setOf(first), st.playedThisLap)
+        assertNotEquals(first, st.currentPlayer)
+
+        // Completar la vuelta (3 descartes más)
+        repeat(3) {
+            val p = st.currentPlayer!!
+            st = CariocaGame.perform(st, DrawFromStock(p)).state
+            val c = st.hands[p]!!.last()
+            st = CariocaGame.perform(st, DiscardAction(p, c.id)).state
+        }
+        assertEquals(first, st.currentPlayer)
+        assertTrue(st.playedThisLap.isEmpty())
+    }
+
+    @Test
     fun `fin de ronda, ganador suma 0, otros suman puntos de mano`() {
         var res = CariocaGame.createGame(players, rules, 12345L)
         var st = res.state

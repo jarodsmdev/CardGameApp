@@ -24,6 +24,7 @@ data class CariocaState(
     val table: Map<PlayerId, List<Meld>> = emptyMap(),
     val meldedThisRound: Set<PlayerId> = emptySet(),
     val meldedThisTurn: Set<PlayerId> = emptySet(),
+    val playedThisLap: Set<PlayerId> = emptySet(),
     val everMelded: Set<PlayerId> = emptySet(),
     val currentPlayer: PlayerId? = null,
     val stage: Stage = Stage.DRAW,

@@ -141,6 +141,7 @@ object CariocaGame : Game<CariocaState> {
             table = state.players.associate { it to emptyList() },
             meldedThisRound = emptySet(),
             meldedThisTurn = emptySet(),
+            playedThisLap = emptySet(),
             currentPlayer = state.players[firstToPlay],
             stage = Stage.DRAW,
             dealerSeat = nextDealer,
@@ -256,6 +257,8 @@ object CariocaGame : Game<CariocaState> {
         val newHands = state.hands + (p to newHand)
         val nextPlayer = nextPlayer(state, p)
         val events = listOf(CardDiscarded(state.seq + 1, p, a.cardId))
+        val playedThisLap = state.playedThisLap + p
+        val newPlayedThisLap = if (playedThisLap.size == state.players.size) emptySet() else playedThisLap
 
         if (newHand.isEmpty()) {
             // Gana la ronda (corte)
@@ -263,6 +266,7 @@ object CariocaGame : Game<CariocaState> {
                 hands = newHands,
                 discard = newDiscard,
                 meldedThisTurn = emptySet(),
+                playedThisLap = newPlayedThisLap,
                 seq = state.seq + 1
             ), p, events)
         }
@@ -271,6 +275,7 @@ object CariocaGame : Game<CariocaState> {
                 hands = newHands,
                 discard = newDiscard,
                 meldedThisTurn = emptySet(),
+                playedThisLap = newPlayedThisLap,
                 currentPlayer = nextPlayer,
                 stage = Stage.DRAW,
                 seq = state.seq + 1
