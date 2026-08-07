@@ -1,5 +1,6 @@
 package com.jarod.card.features.game
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -51,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jarod.card.core.ui.ConfirmDialog
 import com.jarod.card.domain.engine.PlayerId
 import com.jarod.card.domain.games.carioca.CariocaBot
 import com.jarod.card.domain.games.carioca.CariocaPhase
@@ -68,11 +70,15 @@ import kotlinx.coroutines.delay
 @Composable
 fun GameScreen(
     roomId: String,
+    onExit: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: GameViewModel = hiltViewModel()
 ) {
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
     val st = ui.state
+
+    var showExitDialog by remember { mutableStateOf(false) }
+    BackHandler(enabled = !showExitDialog) { showExitDialog = true }
 
     LaunchedEffect(ui.error) {
         if (ui.error != null) {
@@ -103,6 +109,19 @@ fun GameScreen(
 
     if (st?.phase == CariocaPhase.GAME_END && st.result != null) {
         GameEndDialog(st = st, humanId = ui.humanId, onRestart = viewModel::startGame)
+    }
+
+    if (showExitDialog) {
+        ConfirmDialog(
+            title = "Salir de la partida",
+            text = "¿Quieres salir? Perderás la partida en curso.",
+            confirmText = "Salir",
+            onConfirm = {
+                showExitDialog = false
+                onExit()
+            },
+            onDismiss = { showExitDialog = false }
+        )
     }
 }
 
@@ -316,11 +335,16 @@ private fun StockDiscardRow(
     ) {
         // Mazo
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // El reverso mostrado es el del mazo al que pertenece la carta de
+            // arriba: al robar cambia y alterna entre los 2 diseños de reverso.
+            val top = st.stock.lastOrNull()
             CardBack(
                 modifier = Modifier.clickable(
                     enabled = myTurn && st.stage == Stage.DRAW && st.stock.isNotEmpty(),
                     onClick = onDrawStock
-                )
+                ),
+                skin = skin,
+                deckIndex = top?.setIndex ?: 0
             )
             Text("${st.stock.size}", style = MaterialTheme.typography.bodySmall)
         }
@@ -425,7 +449,7 @@ private fun HandRow(
         val stepMaxPx = with(density) { 50.dp.toPx() }
         val liftPx = with(density) { liftHeight.toPx() }
         val shadowPx = with(density) { 16.dp.toPx() }
-        val maxWidthPx = constraints.maxWidth.toFloat()
+        val maxWidthPx = with(density) { maxWidth.toPx() }
         val n = order.size
 
         // La mano completa siempre cabe: el paso de superposición se calcula para que
@@ -597,15 +621,12 @@ private fun describeRound(round: CariocaRound): String =
     round.combos.joinToString(" + ") { describeCombo(it) }
 
 private fun describeCombo(spec: ComboSpec): String {
-    val type = when (spec.type) {
-        ComboType.TRIPLE -> "trío"
-        ComboType.RUN -> "escala"
+    val countText = if (spec.count == 1) "1 " else "${spec.count} "
+    return when (spec.type) {
+        ComboType.TRIPLE -> "${countText}trío${if (spec.count > 1) "s" else ""}"
+        ComboType.RUN -> when (spec.exactLength) {
+            13 -> "Escala Real"
+            else -> "${countText}escala${if (spec.count > 1) "s" else ""}"
+        }
     }
-    val plural = if (spec.count > 1) "s" else ""
-    val size = when {
-        spec.exactLength != null -> " exacta ${spec.exactLength}"
-        spec.minLength != 4 -> " ${spec.minLength}+"
-        else -> " 4+"
-    }
-    return "${spec.count}× $type$plural$size"
 }

@@ -52,7 +52,10 @@ fun AppNavHost(modifier: Modifier = Modifier) {
             arguments = listOf(navArgument("roomId") { type = NavType.StringType })
         ) { backStackEntry ->
             val roomId = backStackEntry.arguments?.getString("roomId").orEmpty()
-            GameScreen(roomId = roomId)
+            GameScreen(
+                roomId = roomId,
+                onExit = { navController.popBackStack() }
+            )
         }
     }
 }

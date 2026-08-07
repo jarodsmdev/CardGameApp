@@ -173,20 +173,23 @@ fun CardFace(
             .padding(4.dp)
     ) {
         if (isJoker) {
+            // "JOKER" en vertical, ocupando la misma zona que el número y la
+            // figura de las cartas normales (esquina superior izquierda).
             Column(
                 modifier = Modifier.align(Alignment.TopStart),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "JOKER",
+                    text = "J\nO\nK\nE\nR",
                     color = textColor,
-                    fontSize = (height * 0.18f).value.sp,
+                    fontSize = (height * 0.14f).value.sp,
+                    lineHeight = (height * 0.14f).value.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
                     text = "\u2605",
                     color = textColor,
-                    fontSize = (height * 0.16f).value.sp
+                    fontSize = (height * 0.14f).value.sp
                 )
             }
         } else {
