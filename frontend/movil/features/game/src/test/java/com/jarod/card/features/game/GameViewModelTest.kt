@@ -12,6 +12,8 @@ import com.jarod.card.features.game.cardskin.CardSkin
 import com.jarod.card.features.game.cardskin.CardSkinStore
 import com.jarod.card.features.game.cardskin.FrontDesign
 import com.jarod.card.features.game.cardskin.JokerStyle
+import com.jarod.card.features.game.stats.CumulativeStats
+import com.jarod.card.features.game.stats.GameStatsStore
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -34,6 +36,13 @@ class GameViewModelTest {
         }
     }
 
+    private class FakeStatsStore(var stored: CumulativeStats = CumulativeStats()) : GameStatsStore {
+        override fun read(): CumulativeStats = stored
+        override fun add(played: CumulativeStats) {
+            stored += played
+        }
+    }
+
     private fun provider(): DispatchersProvider =
         DispatchersProvider(main = mainRule.testDispatcher, default = mainRule.testDispatcher, io = mainRule.testDispatcher)
 
@@ -45,7 +54,7 @@ class GameViewModelTest {
     )
 
     private fun newViewModel(ruleset: CariocaRuleset = shortRules(), seed: Long = 999L): GameViewModel {
-        val vm = GameViewModel(provider(), FakeSkinStore())
+        val vm = GameViewModel(provider(), FakeSkinStore(), FakeStatsStore())
         vm.startGame(ruleset, seed)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         return vm
@@ -73,10 +82,26 @@ class GameViewModelTest {
             front = FrontDesign.DORADO,
             joker = JokerStyle.ORO
         )
-        val vm = GameViewModel(provider(), FakeSkinStore(saved))
+        val vm = GameViewModel(provider(), FakeSkinStore(saved), FakeStatsStore())
         vm.startGame(shortRules(), 999L)
         advance()
         assertEquals(saved, vm.uiState.value.skin)
+    }
+
+    @Test
+    fun `al terminar la partida se generan stats y se acumulan en el almacén`() {
+        val statsStore = FakeStatsStore()
+        val vm = GameViewModel(provider(), FakeSkinStore(), statsStore)
+        vm.startGame(shortRules(), 999L)
+        advance()
+        playUntilEnd(vm)
+        val stats = vm.uiState.value.gameStats
+        assertNotNull(stats)
+        assertTrue(stats!!.totalTurns > 0)
+        assertTrue(stats.totalLaps > 0)
+        assertEquals(1, statsStore.stored.gamesPlayed)
+        assertEquals(stats.rounds.size, statsStore.stored.roundsPlayed)
+        assertEquals(stats.totalTurns, statsStore.stored.turns)
     }
 
     @Test
@@ -112,6 +137,11 @@ class GameViewModelTest {
     @Test
     fun `partida completa via viewmodel llega a GAME_END`() {
         val vm = newViewModel()
+        playUntilEnd(vm)
+        assertEquals(CariocaPhase.GAME_END, vm.uiState.value.state!!.phase)
+    }
+
+    private fun playUntilEnd(vm: GameViewModel) {
         var guard = 0
         while (vm.uiState.value.state?.phase != CariocaPhase.GAME_END && guard < 2000) {
             val st = vm.uiState.value.state!!
@@ -128,7 +158,6 @@ class GameViewModelTest {
             advance()
             guard++
         }
-        assertEquals(CariocaPhase.GAME_END, vm.uiState.value.state!!.phase)
     }
 
     private fun advanceToHumanTurn(vm: GameViewModel) {

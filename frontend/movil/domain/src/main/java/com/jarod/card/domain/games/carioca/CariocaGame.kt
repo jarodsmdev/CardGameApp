@@ -258,7 +258,10 @@ object CariocaGame : Game<CariocaState> {
         val nextPlayer = nextPlayer(state, p)
         val events = listOf(CardDiscarded(state.seq + 1, p, a.cardId))
         val playedThisLap = state.playedThisLap + p
-        val newPlayedThisLap = if (playedThisLap.size == state.players.size) emptySet() else playedThisLap
+        val lapCompleted = playedThisLap.size == state.players.size
+        val newPlayedThisLap = if (lapCompleted) emptySet() else playedThisLap
+        val newLaps = state.laps + if (lapCompleted) 1 else 0
+        val newTurns = state.turns + 1
 
         if (newHand.isEmpty()) {
             // Gana la ronda (corte)
@@ -267,6 +270,8 @@ object CariocaGame : Game<CariocaState> {
                 discard = newDiscard,
                 meldedThisTurn = emptySet(),
                 playedThisLap = newPlayedThisLap,
+                laps = newLaps,
+                turns = newTurns,
                 seq = state.seq + 1
             ), p, events)
         }
@@ -276,6 +281,8 @@ object CariocaGame : Game<CariocaState> {
                 discard = newDiscard,
                 meldedThisTurn = emptySet(),
                 playedThisLap = newPlayedThisLap,
+                laps = newLaps,
+                turns = newTurns,
                 currentPlayer = nextPlayer,
                 stage = Stage.DRAW,
                 seq = state.seq + 1

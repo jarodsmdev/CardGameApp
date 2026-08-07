@@ -195,6 +195,24 @@ GAME_END { reason: NORMAL | FORFEIT | TIMEOUT | ADMIN, result: GameResult }
 - Carioca: puntos = cartas no bajadas al terminar la ronda; acumulativo.
 - El resumen (`GameResult`) se persiste para historial y estadísticas.
 
+### 8.1 Estadísticas de partida
+
+El motor contabiliza métricas acumulativas en el estado de Carioca
+(`CariocaState`): **`turns`** (turnos jugados) y **`laps`** (vueltas completas,
+= todos los jugadores han jugado su turno). El cliente las proyecta por ronda y
+total:
+
+- **`GameStatsTracker`**: agrega por **ronda** (vueltas, turnos y tiempo
+  empleado) y cierra la ronda al detectar el cambio de ronda o `GAME_END`.
+- **`GameStats` / `RoundStats` / `CumulativeStats`**: modelo inmutable con
+  `operator plus` para acumulación.
+- **`GameStatsStore`** (`SharedPreferences`): persiste **en el dispositivo**
+  `gamesPlayed`, `roundsPlayed`, `laps`, `turns` y `totalTimeMillis`, acumulados
+  entre partidas.
+- El móvil muestra el resumen en el diálogo final (`GameEndDialog`).
+- **Online (Fase 3):** las estadísticas por usuario pasarán a vivirlas en el
+  servidor (tabla `stats`, `docs/database.md`), alimentadas por `GameResult`.
+
 ---
 
 ## 9. Reglas como configuración (Ruleset)

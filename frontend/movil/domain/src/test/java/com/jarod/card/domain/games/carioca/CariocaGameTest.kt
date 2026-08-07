@@ -127,6 +127,31 @@ class CariocaGameTest {
     }
 
     @Test
+    fun `laps y turns contabilizan vueltas completas y turnos jugados`() {
+        var res = CariocaGame.createGame(players, rules, 12345L)
+        var st = res.state
+        assertEquals(0, st.laps)
+        assertEquals(0, st.turns)
+
+        fun playTurn(state: CariocaState): CariocaState {
+            val p = state.currentPlayer!!
+            val afterDraw = CariocaGame.perform(state, DrawFromStock(p)).state
+            val c = afterDraw.hands[p]!!.last()
+            return CariocaGame.perform(afterDraw, DiscardAction(p, c.id)).state
+        }
+
+        // Primera vuelta: 4 turnos = 1 lap
+        repeat(4) { st = playTurn(st) }
+        assertEquals(1, st.laps)
+        assertEquals(4, st.turns)
+
+        // Segunda vuelta completa: 4 turnos más = 2 laps
+        repeat(4) { st = playTurn(st) }
+        assertEquals(2, st.laps)
+        assertEquals(8, st.turns)
+    }
+
+    @Test
     fun `fin de ronda, ganador suma 0, otros suman puntos de mano`() {
         var res = CariocaGame.createGame(players, rules, 12345L)
         var st = res.state

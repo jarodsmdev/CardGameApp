@@ -237,6 +237,14 @@ ronda, más cartas y más complejidad.**
   persiste el estado final y **libera toda la memoria** de la partida (ver
   `docs/game-engine.md §11`).
 
+### 11.3 Estadísticas de partida (móvil local)
+
+- Al terminar la partida se registran **por ronda** y **totales**: **vueltas**
+  completas, **turnos** jugados y **tiempo** empleado.
+- Se persisten **en el dispositivo** (SharedPreferences) y se **acumulan** entre
+  partidas; el móvil los muestra en el diálogo final de la partida.
+- Modelo y almacenamiento: `docs/game-engine.md §8`.
+
 ## 12. Variantes regionales conocidas (parametrizables, NO implementadas por defecto)
 
 - Valores de cartas distintos (según zona).

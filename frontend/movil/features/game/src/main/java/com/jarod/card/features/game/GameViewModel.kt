@@ -20,6 +20,10 @@ import com.jarod.card.domain.games.carioca.MeldAction
 import com.jarod.card.domain.games.carioca.Stage
 import com.jarod.card.features.game.cardskin.CardSkin
 import com.jarod.card.features.game.cardskin.CardSkinStore
+import com.jarod.card.features.game.stats.CumulativeStats
+import com.jarod.card.features.game.stats.GameStats
+import com.jarod.card.features.game.stats.GameStatsStore
+import com.jarod.card.features.game.stats.GameStatsTracker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -36,17 +40,22 @@ data class GameUiState(
     val error: String? = null,
     val botsThinking: Boolean = false,
     val secondsLeft: Int = -1,
+    val gameStats: GameStats? = null,
+    val cumulativeStats: CumulativeStats = CumulativeStats(),
     val skin: CardSkin = CardSkin()
 )
 
 @HiltViewModel
 class GameViewModel @Inject constructor(
     private val dispatchers: DispatchersProvider,
-    private val skinStore: CardSkinStore
+    private val skinStore: CardSkinStore,
+    private val statsStore: GameStatsStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(GameUiState(skin = skinStore.read()))
     val uiState: StateFlow<GameUiState> = _uiState.asStateFlow()
+
+    private val statsTracker = GameStatsTracker()
 
     private val rng = java.util.Random()
     private var botJob: Job? = null
@@ -69,8 +78,12 @@ class GameViewModel @Inject constructor(
                 humanId = players.first(),
                 botsThinking = false,
                 error = null,
-                secondsLeft = -1
+                secondsLeft = -1,
+                gameStats = null,
+                cumulativeStats = statsStore.read()
             )
+            statsTracker.startGame()
+            trackState(transition.state)
             syncTurnTimer()
             runBotsIfNeeded()
         }
@@ -119,6 +132,7 @@ class GameViewModel @Inject constructor(
         }
         val transition = CariocaGame.perform(st, action)
         _uiState.value = _uiState.value.copy(state = transition.state, error = null)
+        trackState(transition.state)
         syncTurnTimer()
         runBotsIfNeeded()
     }
@@ -158,6 +172,7 @@ class GameViewModel @Inject constructor(
                 }
                 withContext(dispatchers.main) {
                     _uiState.value = _uiState.value.copy(state = current, botsThinking = false)
+                    if (current != null) trackState(current)
                     syncTurnTimer()
                 }
             } catch (e: Exception) {
@@ -176,6 +191,28 @@ class GameViewModel @Inject constructor(
     }
 
     private fun currentState(): CariocaState? = _uiState.value.state
+
+    // ──────────────────────────────────────────────────────────────
+    // Estadísticas de partida (vueltas, turnos, tiempo por ronda)
+    // ──────────────────────────────────────────────────────────────
+    private fun trackState(st: CariocaState) {
+        statsTracker.onState(st)
+        if (st.phase == CariocaPhase.GAME_END && _uiState.value.gameStats == null) {
+            val stats = statsTracker.result()
+            val played = CumulativeStats(
+                gamesPlayed = 1,
+                roundsPlayed = stats.rounds.size,
+                laps = stats.totalLaps,
+                turns = stats.totalTurns,
+                totalTimeMillis = stats.totalTimeMillis
+            )
+            _uiState.value = _uiState.value.copy(
+                gameStats = stats,
+                cumulativeStats = _uiState.value.cumulativeStats + played
+            )
+            statsStore.add(played)
+        }
+    }
 
     // ──────────────────────────────────────────────────────────────
     // Temporizador del turno humano (aviso visual, genérico TurnTimeout)

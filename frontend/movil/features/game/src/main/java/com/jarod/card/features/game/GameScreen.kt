@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -88,6 +89,8 @@ import com.jarod.card.domain.games.carioca.ComboType
 import com.jarod.card.domain.games.carioca.Meld
 import com.jarod.card.domain.games.carioca.Stage
 import com.jarod.card.features.game.cardskin.CardSkin
+import com.jarod.card.features.game.stats.CumulativeStats
+import com.jarod.card.features.game.stats.GameStats
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
@@ -227,7 +230,13 @@ fun GameScreen(
     }
 
     if (st?.phase == CariocaPhase.GAME_END && st.result != null) {
-        GameEndDialog(st = st, humanId = ui.humanId, onRestart = viewModel::startGame)
+        GameEndDialog(
+            st = st,
+            humanId = ui.humanId,
+            gameStats = ui.gameStats,
+            cumulativeStats = ui.cumulativeStats,
+            onRestart = viewModel::startGame
+        )
     }
 
     if (showExitDialog) {
@@ -766,6 +775,8 @@ private fun HandRow(
 private fun GameEndDialog(
     st: CariocaState,
     humanId: PlayerId?,
+    gameStats: GameStats?,
+    cumulativeStats: CumulativeStats,
     onRestart: () -> Unit
 ) {
     val rankings = st.result?.rankings.orEmpty().sortedBy { it.rank }
@@ -773,12 +784,51 @@ private fun GameEndDialog(
         onDismissRequest = {},
         title = { Text("Fin de la partida") },
         text = {
-            Column {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .heightIn(max = 380.dp)
+            ) {
                 rankings.forEach { r ->
                     Text(
                         text = "${r.rank}. ${nameOf(r.playerId, humanId)} — ${r.score} pts (${r.roundsWon} rondas)",
                         style = MaterialTheme.typography.bodyMedium
                     )
+                }
+                if (gameStats != null) {
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                    Text(
+                        text = "Estadísticas de la partida",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    gameStats.rounds.forEach { rs ->
+                        Text(
+                            text = "Ronda ${rs.round}: ${plural(rs.laps, "vuelta")} · " +
+                                "${plural(rs.turns, "turno")} · ${formatDuration(rs.elapsedMillis)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
+                    Text(
+                        text = "Total: ${plural(gameStats.totalLaps, "vuelta")} · " +
+                            "${plural(gameStats.totalTurns, "turno")} · ${formatDuration(gameStats.totalTimeMillis)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                    if (cumulativeStats.gamesPlayed > 0) {
+                        Text(
+                            text = "Tus totales (${plural(cumulativeStats.gamesPlayed, "partida")}): " +
+                                "${plural(cumulativeStats.roundsPlayed, "ronda")} · " +
+                                "${plural(cumulativeStats.laps, "vuelta")} · " +
+                                "${plural(cumulativeStats.turns, "turno")} · " +
+                                formatDuration(cumulativeStats.totalTimeMillis),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
                 }
             }
         },
@@ -786,6 +836,15 @@ private fun GameEndDialog(
             TextButton(onClick = onRestart) { Text("Jugar de nuevo") }
         }
     )
+}
+
+private fun plural(n: Int, singular: String): String = "$n $singular${if (n == 1) "" else "s"}"
+
+private fun formatDuration(ms: Long): String {
+    val totalSec = ms / 1000
+    val min = totalSec / 60
+    val sec = totalSec % 60
+    return if (min > 0) "${min}m ${sec}s" else "${sec}s"
 }
 
 // ──────────────────────────────────────────────────────────────
