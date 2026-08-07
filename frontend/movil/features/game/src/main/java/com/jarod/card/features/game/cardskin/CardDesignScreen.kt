@@ -1,5 +1,6 @@
 package com.jarod.card.features.game.cardskin
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -23,12 +24,16 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jarod.card.core.ui.ConfirmDialog
 import com.jarod.card.domain.core.JokerCard
 import com.jarod.card.domain.core.JokerType
 import com.jarod.card.domain.core.PlayingCard
@@ -49,6 +54,9 @@ fun CardDesignScreen(
     viewModel: CardDesignViewModel = hiltViewModel()
 ) {
     val skin by viewModel.skin.collectAsStateWithLifecycle()
+
+    var showExitDialog by remember { mutableStateOf(false) }
+    BackHandler(enabled = !showExitDialog) { showExitDialog = true }
 
     Column(
         modifier = modifier
@@ -134,6 +142,19 @@ fun CardDesignScreen(
                 }
             },
             onSelect = viewModel::selectJoker
+        )
+    }
+
+    if (showExitDialog) {
+        ConfirmDialog(
+            title = "Salir de ajustes",
+            text = "¿Quieres volver al lobby? El diseño se guarda automáticamente.",
+            confirmText = "Salir",
+            onConfirm = {
+                showExitDialog = false
+                onBack()
+            },
+            onDismiss = { showExitDialog = false }
         )
     }
 }
