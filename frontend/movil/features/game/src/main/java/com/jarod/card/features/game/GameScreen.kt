@@ -6,12 +6,14 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,16 +21,21 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -42,13 +49,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -66,6 +78,47 @@ import com.jarod.card.features.game.cardskin.CardSkin
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
+
+private val DiscardBadgeRed = Color(0xFFC62828)
+
+@Composable
+private fun BoxScope.CountBadge(
+    count: Int,
+    offsetX: Dp = 6.dp,
+    offsetY: Dp = (-8).dp
+) {
+    Text(
+        text = "$count",
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .offset(x = offsetX, y = offsetY)
+            .background(DiscardBadgeRed, CircleShape)
+            .padding(horizontal = 7.dp, vertical = 1.dp),
+        color = Color.White,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Bold
+    )
+}
+
+@Composable
+private fun ScoreChip(score: Int, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Star,
+            contentDescription = "Puntos",
+            modifier = Modifier.size(14.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
+        Spacer(Modifier.width(4.dp))
+        Text("$score pts", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+    }
+}
 
 @Composable
 fun GameScreen(
@@ -148,8 +201,6 @@ private fun CariocaBoard(
 
         OpponentsRow(st, humanId)
 
-        ScoresRow(st, humanId)
-
         Spacer(Modifier.height(8.dp))
 
         Column(
@@ -158,9 +209,9 @@ private fun CariocaBoard(
             TableSection(st, humanId, skin)
         }
 
-        StockDiscardRow(st, myTurn, skin, onDrawStock, onDrawDiscard)
-
         ActionBar(st, humanId, myTurn, onMeld, onLayOff)
+
+        StockDiscardRow(st, myTurn, skin, onDrawStock, onDrawDiscard)
 
         HandRow(st, humanId, myTurn, skin, onDiscard)
 
@@ -170,6 +221,10 @@ private fun CariocaBoard(
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(vertical = 4.dp)
             )
+        }
+
+        Box(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
+            ScoreChip(st.scores[humanId] ?: 0)
         }
     }
 }
@@ -233,6 +288,7 @@ private fun OpponentsRow(st: CariocaState, humanId: PlayerId) {
         opponents.forEach { p ->
             PlayerCard(
                 name = nameOf(p, humanId),
+                score = st.scores[p] ?: 0,
                 handCount = st.hands[p]!!.size,
                 melded = p in st.meldedThisRound,
                 isTurn = st.currentPlayer == p && st.phase == CariocaPhase.PLAYING,
@@ -245,6 +301,7 @@ private fun OpponentsRow(st: CariocaState, humanId: PlayerId) {
 @Composable
 private fun PlayerCard(
     name: String,
+    score: Int,
     handCount: Int,
     melded: Boolean,
     isTurn: Boolean,
@@ -256,26 +313,17 @@ private fun PlayerCard(
         color = if (isTurn) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
         border = if (isTurn) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
     ) {
-        Column(Modifier.padding(8.dp)) {
-            Text(name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            Text("$handCount cartas", style = MaterialTheme.typography.bodySmall)
-            if (melded) {
-                Text("bajado", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        Box(Modifier.padding(8.dp)) {
+            Column {
+                Text(name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                ScoreChip(score)
+                if (melded) {
+                    Text("bajado", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
             }
+            CountBadge(handCount, offsetX = 4.dp, offsetY = (-6).dp)
         }
     }
-}
-
-@Composable
-private fun ScoresRow(st: CariocaState, humanId: PlayerId) {
-    val text = st.players.joinToString(" · ") { p ->
-        "${nameOf(p, humanId)}: ${st.scores[p] ?: 0} pts"
-    }
-    Text(
-        text = text,
-        style = MaterialTheme.typography.bodySmall,
-        modifier = Modifier.fillMaxWidth()
-    )
 }
 
 @Composable
@@ -338,32 +386,40 @@ private fun StockDiscardRow(
             // El reverso mostrado es el del mazo al que pertenece la carta de
             // arriba: al robar cambia y alterna entre los 2 diseños de reverso.
             val top = st.stock.lastOrNull()
-            CardBack(
-                modifier = Modifier.clickable(
-                    enabled = myTurn && st.stage == Stage.DRAW && st.stock.isNotEmpty(),
-                    onClick = onDrawStock
-                ),
-                skin = skin,
-                deckIndex = top?.setIndex ?: 0
-            )
-            Text("${st.stock.size}", style = MaterialTheme.typography.bodySmall)
+            Box {
+                CardBack(
+                    modifier = Modifier.clickable(
+                        enabled = myTurn && st.stage == Stage.DRAW && st.stock.isNotEmpty(),
+                        onClick = onDrawStock
+                    ),
+                    skin = skin,
+                    deckIndex = top?.setIndex ?: 0
+                )
+                if (st.stock.isNotEmpty()) {
+                    CountBadge(st.stock.size)
+                }
+            }
         }
         // Pozo
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             val top = st.discard.lastOrNull()
-            if (top != null) {
-                CardFace(
-                    card = top,
-                    skin = skin,
-                    modifier = Modifier.clickable(
-                        enabled = myTurn && st.stage == Stage.DRAW && st.discard.isNotEmpty(),
-                        onClick = onDrawDiscard
+            Box {
+                if (top != null) {
+                    CardFace(
+                        card = top,
+                        skin = skin,
+                        modifier = Modifier.clickable(
+                            enabled = myTurn && st.stage == Stage.DRAW && st.discard.isNotEmpty(),
+                            onClick = onDrawDiscard
+                        )
                     )
-                )
-            } else {
-                CardBack(width = 44.dp, height = 62.dp, skin = skin)
+                } else {
+                    CardBack(width = 44.dp, height = 62.dp, skin = skin)
+                }
+                if (st.discard.isNotEmpty()) {
+                    CountBadge(st.discard.size)
+                }
             }
-            Text("Pozo ${st.discard.size}", style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -376,28 +432,29 @@ private fun ActionBar(
     onMeld: () -> Unit,
     onLayOff: () -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         if (myTurn && st.stage == Stage.ACTIONS) {
             val human = st.hands[humanId] ?: emptyList()
             val round = st.ruleset.rounds[st.roundIndex]
             val canMeld = humanId !in st.meldedThisRound &&
                 CariocaBot.findMeldForRound(human, round) != null
             val canLayOff = CariocaBot.findLayOff(st, humanId) != null
-            Button(onClick = onMeld, enabled = canMeld) {
-                Text("Bajarse")
-            }
-            Button(onClick = onLayOff, enabled = canLayOff) {
-                Text("Añadir a mesa")
-            }
             Text(
                 text = "Arrastra una carta para ordenar · toca para descartar",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.align(Alignment.CenterVertically)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(onClick = onMeld, enabled = canMeld) {
+                    Text("Bajarse")
+                }
+                Button(onClick = onLayOff, enabled = canLayOff) {
+                    Text("Añadir a mesa")
+                }
+            }
         } else if (!myTurn) {
             Text(
                 text = "Esperando a los demás…",
@@ -449,6 +506,8 @@ private fun HandRow(
         val stepMaxPx = with(density) { 50.dp.toPx() }
         val liftPx = with(density) { liftHeight.toPx() }
         val shadowPx = with(density) { 16.dp.toPx() }
+        val arcRaisePx = with(density) { 6.dp.toPx() }
+        val maxArcRotation = 4f
         val maxWidthPx = with(density) { maxWidth.toPx() }
         val n = order.size
 
@@ -560,6 +619,9 @@ private fun HandRow(
                     label = "lift"
                 )
 
+                val t = if (n > 1) (2f * index - (n - 1)) / (n - 1) else 0f
+                val arcRaise = if (isDragged) 0f else arcRaisePx * (1f - t * t)
+
                 CardFace(
                     card = card,
                     width = cardWidth,
@@ -570,7 +632,9 @@ private fun HandRow(
                         .zIndex(if (isDragged) 1f else 0f)
                         .graphicsLayer {
                             translationX = if (dragIndex == index) dragX - dragAnchor else x.value
-                            translationY = -liftPx * lift
+                            translationY = -liftPx * lift - arcRaise
+                            rotationZ = if (isDragged) 0f else t * maxArcRotation
+                            transformOrigin = TransformOrigin(0.5f, 1f)
                             scaleX = 1f + 0.07f * lift
                             scaleY = 1f + 0.07f * lift
                             shadowElevation = shadowPx * lift
