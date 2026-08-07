@@ -2,9 +2,15 @@ package com.jarod.card.features.game
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -30,6 +36,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -42,6 +49,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -80,6 +88,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 private val DiscardBadgeRed = Color(0xFFC62828)
+private val PlayedCheckGreen = Color(0xFF2E7D32)
 
 @Composable
 private fun BoxScope.CountBadge(
@@ -97,6 +106,20 @@ private fun BoxScope.CountBadge(
         color = Color.White,
         fontSize = 11.sp,
         fontWeight = FontWeight.Bold
+    )
+}
+
+@Composable
+private fun rememberPulse(): State<Float> {
+    val transition = rememberInfiniteTransition(label = "turnPulse")
+    return transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse"
     )
 }
 
@@ -291,6 +314,7 @@ private fun OpponentsRow(st: CariocaState, humanId: PlayerId) {
                 score = st.scores[p] ?: 0,
                 handCount = st.hands[p]!!.size,
                 melded = p in st.meldedThisRound,
+                played = p in st.playedThisLap,
                 isTurn = st.currentPlayer == p && st.phase == CariocaPhase.PLAYING,
                 modifier = Modifier.weight(1f)
             )
@@ -304,18 +328,36 @@ private fun PlayerCard(
     score: Int,
     handCount: Int,
     melded: Boolean,
+    played: Boolean,
     isTurn: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val pulse by rememberPulse()
     Surface(
-        modifier = modifier,
+        modifier = modifier
+            .graphicsLayer {
+                val s = if (isTurn) 1f + 0.03f * pulse else 1f
+                scaleX = s
+                scaleY = s
+            },
         shape = RoundedCornerShape(10.dp),
         color = if (isTurn) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
         border = if (isTurn) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
     ) {
         Box(Modifier.padding(8.dp)) {
             Column {
-                Text(name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    if (played) {
+                        Spacer(Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = "Ya jugó",
+                            modifier = Modifier.size(14.dp),
+                            tint = PlayedCheckGreen
+                        )
+                    }
+                }
                 ScoreChip(score)
             }
             CountBadge(handCount, offsetX = 4.dp, offsetY = (-6).dp)
@@ -377,6 +419,9 @@ private fun StockDiscardRow(
     onDrawStock: () -> Unit,
     onDrawDiscard: () -> Unit
 ) {
+    val pulse by rememberPulse()
+    val canDrawStock = myTurn && st.stage == Stage.DRAW && st.stock.isNotEmpty()
+    val canDrawDiscard = myTurn && st.stage == Stage.DRAW && st.discard.isNotEmpty()
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -389,10 +434,13 @@ private fun StockDiscardRow(
             val top = st.stock.lastOrNull()
             Box {
                 CardBack(
-                    modifier = Modifier.clickable(
-                        enabled = myTurn && st.stage == Stage.DRAW && st.stock.isNotEmpty(),
-                        onClick = onDrawStock
-                    ),
+                    modifier = Modifier
+                        .clickable(enabled = canDrawStock, onClick = onDrawStock)
+                        .graphicsLayer {
+                            val s = if (canDrawStock) 1f + 0.04f * pulse else 1f
+                            scaleX = s
+                            scaleY = s
+                        },
                     skin = skin,
                     deckIndex = top?.setIndex ?: 0
                 )
@@ -409,10 +457,13 @@ private fun StockDiscardRow(
                     CardFace(
                         card = top,
                         skin = skin,
-                        modifier = Modifier.clickable(
-                            enabled = myTurn && st.stage == Stage.DRAW && st.discard.isNotEmpty(),
-                            onClick = onDrawDiscard
-                        )
+                        modifier = Modifier
+                            .clickable(enabled = canDrawDiscard, onClick = onDrawDiscard)
+                            .graphicsLayer {
+                                val s = if (canDrawDiscard) 1f + 0.04f * pulse else 1f
+                                scaleX = s
+                                scaleY = s
+                            }
                     )
                 } else {
                     CardBack(width = 44.dp, height = 62.dp, skin = skin)

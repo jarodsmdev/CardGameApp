@@ -134,16 +134,19 @@ class GameViewModel @Inject constructor(
                     val player = current.currentPlayer ?: break
                     if (player == _uiState.value.humanId) break
 
+                    withContext(dispatchers.main) {
+                        _uiState.value = _uiState.value.copy(state = current, botsThinking = true)
+                    }
+                    delay(BOT_DELAY_MS)
+
                     val botRng = java.util.Random()
                     val action = CariocaBot.chooseAction(current, player, botRng)
                     val vr = CariocaGame.canPerform(current, action)
-                    val next = if (vr.valid) {
+                    current = if (vr.valid) {
                         CariocaGame.perform(current, action).state
                     } else {
                         fallbackAction(current, player).let { CariocaGame.perform(current, it).state }
                     }
-                    current = next
-                    delay(BOT_DELAY_MS)
                 }
                 withContext(dispatchers.main) {
                     _uiState.value = _uiState.value.copy(state = current, botsThinking = false)
@@ -166,6 +169,6 @@ class GameViewModel @Inject constructor(
     private fun currentState(): CariocaState? = _uiState.value.state
 
     companion object {
-        private const val BOT_DELAY_MS = 350L
+        private const val BOT_DELAY_MS = 700L
     }
 }
