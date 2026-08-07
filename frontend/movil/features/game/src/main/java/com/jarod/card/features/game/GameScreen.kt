@@ -13,7 +13,9 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -39,7 +41,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -61,10 +62,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -98,6 +103,10 @@ import kotlinx.coroutines.delay
 private val DiscardBadgeRed = Color(0xFFC62828)
 private val PlayedCheckGreen = Color(0xFF2E7D32)
 private val TimeoutBorderRed = Color(0xFFD32F2F)
+private val MedalGold = Color(0xFFC9A227)
+private val MedalSilver = Color(0xFF9CA3AF)
+private val MedalBronze = Color(0xFFB07C3E)
+private val MedalFourth = Color(0xFF6B7280)
 
 @Composable
 private fun BoxScope.CountBadge(
@@ -163,8 +172,58 @@ private fun TurnTimeoutVignette(active: Boolean, modifier: Modifier = Modifier) 
     )
 }
 
+/**
+ * Medalla de posición: cinta superior + disco, con el número de la posición
+ * (1, 2, 3, 4) centrado. Deja claro quién va ganando (menos puntos en Carioca).
+ */
 @Composable
-private fun ScoreChip(score: Int, modifier: Modifier = Modifier) {
+private fun RankMedal(rank: Int, modifier: Modifier = Modifier) {
+    val color = when (rank) {
+        1 -> MedalGold
+        2 -> MedalSilver
+        3 -> MedalBronze
+        else -> MedalFourth
+    }
+    Box(modifier.size(22.dp), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
+            val discCenter = Offset(size.width / 2f, size.height * 0.60f)
+            val radius = size.minDimension * 0.40f
+            val ribbon = Path().apply {
+                moveTo(size.width * 0.14f, size.height * 0.04f)
+                lineTo(size.width * 0.30f, size.height * 0.04f)
+                lineTo(size.width * 0.50f, size.height * 0.36f)
+                lineTo(size.width * 0.70f, size.height * 0.04f)
+                lineTo(size.width * 0.86f, size.height * 0.04f)
+                lineTo(size.width * 0.50f, size.height * 0.52f)
+                close()
+            }
+            drawPath(ribbon, lerp(color, Color.Black, 0.35f))
+            drawCircle(color, radius = radius, center = discCenter)
+            drawCircle(
+                color = Color.White.copy(alpha = 0.45f),
+                radius = radius,
+                center = discCenter,
+                style = Stroke(width = 1.5.dp.toPx())
+            )
+            drawCircle(
+                color = Color.White.copy(alpha = 0.20f),
+                radius = radius * 0.70f,
+                center = discCenter,
+                style = Stroke(width = 1.dp.toPx())
+            )
+        }
+        Text(
+            text = rank.toString(),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            modifier = Modifier.offset(y = 2.dp)
+        )
+    }
+}
+
+@Composable
+private fun ScoreChip(score: Int, rank: Int, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
@@ -172,15 +231,18 @@ private fun ScoreChip(score: Int, modifier: Modifier = Modifier) {
             .padding(horizontal = 8.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = Icons.Filled.Star,
-            contentDescription = "Puntos",
-            modifier = Modifier.size(14.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
+        RankMedal(rank)
         Spacer(Modifier.width(4.dp))
         Text("$score pts", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
     }
+}
+
+/** Posición actual (1 = líder): menos puntos, desempate por más rondas ganadas (igual que el motor). */
+private fun rankOf(st: CariocaState, p: PlayerId): Int {
+    val ordered = st.players.sortedWith(
+        compareBy({ st.scores[it] ?: Int.MAX_VALUE }, { -(st.roundsWon[it] ?: 0) }, { it.value })
+    )
+    return ordered.indexOf(p) + 1
 }
 
 @Composable
@@ -300,7 +362,7 @@ private fun CariocaBoard(
         }
 
         Box(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
-            ScoreChip(st.scores[humanId] ?: 0)
+            ScoreChip(score = st.scores[humanId] ?: 0, rank = rankOf(st, humanId))
         }
     }
 }
@@ -381,6 +443,7 @@ private fun OpponentsRow(st: CariocaState, humanId: PlayerId) {
             PlayerCard(
                 name = nameOf(p, humanId),
                 score = st.scores[p] ?: 0,
+                rank = rankOf(st, p),
                 handCount = st.hands[p]!!.size,
                 melded = p in st.meldedThisRound,
                 played = p in st.playedThisLap,
@@ -395,6 +458,7 @@ private fun OpponentsRow(st: CariocaState, humanId: PlayerId) {
 private fun PlayerCard(
     name: String,
     score: Int,
+    rank: Int,
     handCount: Int,
     melded: Boolean,
     played: Boolean,
@@ -427,7 +491,7 @@ private fun PlayerCard(
                         )
                     }
                 }
-                ScoreChip(score)
+                ScoreChip(score, rank)
             }
             CountBadge(handCount, offsetX = 4.dp, offsetY = (-6).dp)
         }
