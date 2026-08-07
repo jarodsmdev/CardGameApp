@@ -208,10 +208,17 @@ ronda, más cartas y más complejidad.**
 
 ### 11.1 Timeout de turno
 
-- Si el jugador **no elige a tiempo** (X segundos configurable), el motor **juega
-  aleatorio** por él (roba y descarta legales según la ronda).
-- Si el jugador acumula **2 timeouts** en la partida, se trata como **abandono**
-  (aplica §11.2).
+- La configuración es **genérica** (`TurnTimeout`, `docs/game-engine.md §6`):
+  `seconds` (límite de tiempo), `policy` (`NONE` = solo avisar, `PLAY_RANDOM` =
+  el motor juega por el jugador) y `limit` (timeouts permitidos).
+- Si el jugador **no elige a tiempo** (X segundos configurable) y la política es
+  `PLAY_RANDOM`, el motor **juega aleatorio** por él (roba y descarta legales
+  según la ronda).
+- Si el jugador acumula **`limit` timeouts** en la partida (por defecto **2**),
+  se trata como **abandono** (aplica §11.2).
+- **Aviso en el móvil (modo local):** el cliente muestra una **cuenta regresiva**
+  y un **aviso visual** (borde rojo pulsante) cuando quedan pocos segundos. El
+  aviso **no** juega automáticamente: con `policy = NONE` solo informa.
 
 ### 11.2 Abandono de ronda
 
@@ -255,7 +262,9 @@ Todo lo anterior se traduce al **Ruleset de Carioca** (`docs/game-engine.md §9`
   juega; modo por defecto = juego completo (9 base).
 - Reglas de comodines (máx. por combinación, no juntos, sin descarte, etc.).
 - `scoring` por carta y regla de ganador/desempate.
-- **Timeout:** `timeoutPolicy = "PLAY_RANDOM"`, `timeoutCount = 2` → abandono.
+- **Timeout:** `TurnTimeout { policy = "PLAY_RANDOM", seconds = 60, limit = 2 }`
+  → el motor juega aleatorio por el jugador inactivo; **2 timeouts = abandono**
+  (§11.1). En el modo local el cliente solo avisa (`policy = NONE`).
 - **Política de abandono:** abandono de **ronda** → confirmación de los demás;
   si confirman, continúa a la siguiente ronda sin el que abandona; si no,
   termina. Penalización configurable (`forfeitPenalty`).

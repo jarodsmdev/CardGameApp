@@ -1,5 +1,6 @@
 package com.jarod.card.features.game
 
+import android.graphics.BlurMaskFilter
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -58,9 +59,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -89,6 +94,7 @@ import kotlinx.coroutines.delay
 
 private val DiscardBadgeRed = Color(0xFFC62828)
 private val PlayedCheckGreen = Color(0xFF2E7D32)
+private val TimeoutBorderRed = Color(0xFFD32F2F)
 
 @Composable
 private fun BoxScope.CountBadge(
@@ -120,6 +126,37 @@ private fun rememberPulse(): State<Float> {
             repeatMode = RepeatMode.Reverse
         ),
         label = "pulse"
+    )
+}
+
+/**
+ * Aviso de poco tiempo: borde rojo difuminado que pulsa en todo el perímetro
+ * de la pantalla. No consume gestos, la interacción sigue activa.
+ */
+@Composable
+private fun TurnTimeoutVignette(active: Boolean, modifier: Modifier = Modifier) {
+    if (!active) return
+    val pulse by rememberPulse()
+    Box(
+        modifier
+            .fillMaxSize()
+            .drawWithCache {
+                val paint = android.graphics.Paint().apply {
+                    style = android.graphics.Paint.Style.STROKE
+                    strokeWidth = 12.dp.toPx()
+                    maskFilter = BlurMaskFilter(28.dp.toPx(), BlurMaskFilter.Blur.NORMAL)
+                }
+                val radius = 16.dp.toPx()
+                onDrawBehind {
+                    val alpha = 0.35f + 0.25f * pulse
+                    paint.color = TimeoutBorderRed.copy(alpha = alpha).toArgb()
+                    drawIntoCanvas { canvas ->
+                        canvas.nativeCanvas.drawRoundRect(
+                            0f, 0f, size.width, size.height, radius, radius, paint
+                        )
+                    }
+                }
+            }
     )
 }
 
@@ -174,6 +211,7 @@ fun GameScreen(
                 error = ui.error,
                 roomId = roomId,
                 skin = ui.skin,
+                secondsLeft = ui.secondsLeft,
                 onDrawStock = viewModel::drawFromStock,
                 onDrawDiscard = viewModel::drawFromDiscard,
                 onMeld = viewModel::autoMeld,
@@ -181,6 +219,11 @@ fun GameScreen(
                 onDiscard = viewModel::discard
             )
         }
+        val human = ui.humanId
+        val lowTime = st != null && human != null &&
+            st.phase == CariocaPhase.PLAYING && st.currentPlayer == human &&
+            ui.secondsLeft in 0..st.ruleset.turnTimeout.warningAtSeconds
+        TurnTimeoutVignette(active = lowTime)
     }
 
     if (st?.phase == CariocaPhase.GAME_END && st.result != null) {
@@ -209,6 +252,7 @@ private fun CariocaBoard(
     error: String?,
     roomId: String,
     skin: CardSkin,
+    secondsLeft: Int,
     onDrawStock: () -> Unit,
     onDrawDiscard: () -> Unit,
     onMeld: () -> Unit,
@@ -220,7 +264,7 @@ private fun CariocaBoard(
     val human = st.hands[humanId] ?: emptyList()
 
     Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
-        TopInfo(st, round, myTurn, botsThinking, error, roomId)
+        TopInfo(st, round, myTurn, botsThinking, error, roomId, secondsLeft)
 
         OpponentsRow(st, humanId)
 
@@ -263,7 +307,8 @@ private fun TopInfo(
     myTurn: Boolean,
     botsThinking: Boolean,
     error: String?,
-    roomId: String
+    roomId: String,
+    secondsLeft: Int
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -284,11 +329,26 @@ private fun TopInfo(
                 Spacer(Modifier.width(6.dp))
                 Text("Jugando…", style = MaterialTheme.typography.bodySmall)
             }
-            myTurn -> Text(
-                text = "Tu turno",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold
-            )
+            myTurn -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Tu turno",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                if (secondsLeft >= 0) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "· ${secondsLeft}s",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (secondsLeft <= st.ruleset.turnTimeout.warningAtSeconds) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        }
+                    )
+                }
+            }
         }
     }
     if (error != null) {
@@ -703,7 +763,11 @@ private fun HandRow(
 // ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun GameEndDialog(st: CariocaState, humanId: PlayerId?, onRestart: () -> Unit) {
+private fun GameEndDialog(
+    st: CariocaState,
+    humanId: PlayerId?,
+    onRestart: () -> Unit
+) {
     val rankings = st.result?.rankings.orEmpty().sortedBy { it.rank }
     AlertDialog(
         onDismissRequest = {},

@@ -6,6 +6,7 @@ import com.jarod.card.core.util.DispatchersProvider
 import com.jarod.card.domain.core.JokerCard
 import com.jarod.card.domain.engine.GameAction
 import com.jarod.card.domain.engine.PlayerId
+import com.jarod.card.domain.engine.TurnCountdown
 import com.jarod.card.domain.games.carioca.CariocaAction
 import com.jarod.card.domain.games.carioca.CariocaBot
 import com.jarod.card.domain.games.carioca.CariocaGame
@@ -34,6 +35,7 @@ data class GameUiState(
     val humanId: PlayerId? = null,
     val error: String? = null,
     val botsThinking: Boolean = false,
+    val secondsLeft: Int = -1,
     val skin: CardSkin = CardSkin()
 )
 
@@ -48,6 +50,7 @@ class GameViewModel @Inject constructor(
 
     private val rng = java.util.Random()
     private var botJob: Job? = null
+    private var turnTimerJob: Job? = null
 
     init {
         startGame()
@@ -55,6 +58,8 @@ class GameViewModel @Inject constructor(
 
     fun startGame(ruleset: CariocaRuleset = CariocaRuleset(), seed: Long? = null) {
         botJob?.cancel()
+        turnTimerJob?.cancel()
+        turnTimerJob = null
         val gameSeed = seed ?: rng.nextLong()
         viewModelScope.launch {
             val players = listOf(PlayerId("tu")) + (1..3).map { PlayerId("bot$it") }
@@ -63,8 +68,10 @@ class GameViewModel @Inject constructor(
                 state = transition.state,
                 humanId = players.first(),
                 botsThinking = false,
-                error = null
+                error = null,
+                secondsLeft = -1
             )
+            syncTurnTimer()
             runBotsIfNeeded()
         }
     }
@@ -112,6 +119,7 @@ class GameViewModel @Inject constructor(
         }
         val transition = CariocaGame.perform(st, action)
         _uiState.value = _uiState.value.copy(state = transition.state, error = null)
+        syncTurnTimer()
         runBotsIfNeeded()
     }
 
@@ -150,6 +158,7 @@ class GameViewModel @Inject constructor(
                 }
                 withContext(dispatchers.main) {
                     _uiState.value = _uiState.value.copy(state = current, botsThinking = false)
+                    syncTurnTimer()
                 }
             } catch (e: Exception) {
                 withContext(dispatchers.main) {
@@ -167,6 +176,43 @@ class GameViewModel @Inject constructor(
     }
 
     private fun currentState(): CariocaState? = _uiState.value.state
+
+    // ──────────────────────────────────────────────────────────────
+    // Temporizador del turno humano (aviso visual, genérico TurnTimeout)
+    // ──────────────────────────────────────────────────────────────
+    private fun syncTurnTimer() {
+        val st = currentState() ?: return
+        val human = _uiState.value.humanId ?: return
+        val timeout = st.ruleset.turnTimeout
+        val run = st.phase == CariocaPhase.PLAYING && st.currentPlayer == human && timeout.enabled
+
+        if (run && turnTimerJob?.isActive == true) return
+
+        turnTimerJob?.cancel()
+        turnTimerJob = null
+
+        if (!run) {
+            if (_uiState.value.secondsLeft != -1) {
+                _uiState.value = _uiState.value.copy(secondsLeft = -1)
+            }
+            return
+        }
+
+        val countdown = TurnCountdown(timeout)
+        _uiState.value = _uiState.value.copy(secondsLeft = countdown.remainingSeconds)
+        turnTimerJob = viewModelScope.launch(dispatchers.default) {
+            while (!countdown.expired) {
+                delay(1000)
+                countdown.tick()
+                withContext(dispatchers.main) {
+                    val cur = currentState()
+                    if (cur?.phase == CariocaPhase.PLAYING && cur.currentPlayer == _uiState.value.humanId) {
+                        _uiState.value = _uiState.value.copy(secondsLeft = countdown.remainingSeconds)
+                    }
+                }
+            }
+        }
+    }
 
     companion object {
         private const val BOT_DELAY_MS = 700L

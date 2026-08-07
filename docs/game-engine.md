@@ -166,9 +166,15 @@ GAME_END { reason: NORMAL | FORFEIT | TIMEOUT | ADMIN, result: GameResult }
 
 - `TurnManager`: define el orden (config del juego: sentido, saltos, equipos).
 - Cada juego decide el **siguiente turno** tras una acción (Template Method).
-- **Timeout de jugador** (`FR-CAR-15` / `NFR-AVAIL-05`): política por ruleset.
-  Carioca: si el jugador **no elige a tiempo, el motor juega aleatorio** por él;
-  al acumular **2 timeouts** la partida lo trata como **abandono** (§11.2).
+- **Timeout de jugador** (`FR-CAR-15` / `NFR-AVAIL-05`): config genérica por
+  ruleset (`TurnTimeout`): `seconds`, `policy` (`NONE` = solo avisar, `PLAY_RANDOM`
+  = jugada aleatoria) y `limit` (timeouts permitidos). Carioca online: si el
+  jugador **no elige a tiempo, el motor juega aleatorio** por él; al acumular
+  **2 timeouts** la partida lo trata como **abandono** (§11.2).
+- **Móvil local:** el cliente muestra **cuenta regresiva** + **aviso visual**
+  (borde rojo pulsante) cuando quedan pocos segundos, sin jugar automáticamente
+  (`policy = NONE`). El conteo es un `TurnCountdown` puro en la capa de dominio,
+  compartido por cualquier cliente/plataforma.
 - Los timers son **por partida** (executor aislado), se cancelan al terminar.
 
 ---

@@ -1,5 +1,7 @@
 package com.jarod.card.domain.games.carioca
 
+import com.jarod.card.domain.engine.TurnTimeout
+
 /**
  * Configuración de reglas de Carioca como datos (game-engine.md §9 / rules.md §13).
  * Ajustar reglas = nueva versión de ruleset, sin tocar el motor.
@@ -42,7 +44,7 @@ data class CariocaRuleset(
     val dealOrder: String = "COUNTER_CLOCKWISE",
     val scoringWinner: Int = 0,
     val cutBonus: Int = 0,
-    val timeoutSeconds: Int = 60
+    val turnTimeout: TurnTimeout = TurnTimeout()
 )
 
 /** Catálogo base de rondas (rules.md §9.1): 1–8 combos, 9 = Escala Real. */
