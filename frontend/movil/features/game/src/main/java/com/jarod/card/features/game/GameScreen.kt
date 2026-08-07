@@ -290,9 +290,11 @@ private fun TableSection(st: CariocaState, humanId: PlayerId, skin: CardSkin) {
 
 @Composable
 private fun MeldRow(meld: Meld, skin: CardSkin) {
+    // Las cartas del meld se apilan una encima de otra (mismo solapamiento que la
+    // mano del jugador); la separación entre melds se mantiene en TableSection.
     Row(
         modifier = Modifier.padding(end = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+        horizontalArrangement = Arrangement.spacedBy((-18).dp)
     ) {
         meld.cards.forEach { card ->
             CardFace(card = card, width = 44.dp, height = 62.dp, skin = skin)
