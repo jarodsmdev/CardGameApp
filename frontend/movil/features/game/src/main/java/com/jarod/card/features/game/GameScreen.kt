@@ -336,7 +336,10 @@ private fun StockDiscardRow(
     ) {
         // Mazo
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CardBack(skin = skin)
+            // El reverso mostrado es el del mazo al que pertenece la carta de
+            // arriba: al robar cambia y alterna entre los 2 diseños de reverso.
+            val top = st.stock.lastOrNull()
+            CardBack(skin = skin, deckIndex = top?.setIndex ?: 0)
             Text("${st.stock.size}", style = MaterialTheme.typography.bodySmall)
             if (myTurn && st.stage == Stage.DRAW) {
                 OutlinedButton(onClick = onDrawStock, enabled = st.stock.isNotEmpty()) {
@@ -615,15 +618,16 @@ private fun describeRound(round: CariocaRound): String =
     round.combos.joinToString(" + ") { describeCombo(it) }
 
 private fun describeCombo(spec: ComboSpec): String {
-    val type = when (spec.type) {
-        ComboType.TRIPLE -> "trío"
-        ComboType.RUN -> "escala"
+    val countText = if (spec.count == 1) "1 " else "${spec.count} "
+    return when (spec.type) {
+        // Un trío siempre son exactamente 3 cartas: no lleva longitud.
+        ComboType.TRIPLE -> "${countText}trío${if (spec.count > 1) "s" else ""}"
+        ComboType.RUN -> when (spec.exactLength) {
+            13 -> "Escala Real (13 cartas)"
+            else -> {
+                val length = spec.exactLength?.let { "de $it cartas" } ?: "de ${spec.minLength}+ cartas"
+                "${countText}escala${if (spec.count > 1) "s" else ""} $length"
+            }
+        }
     }
-    val plural = if (spec.count > 1) "s" else ""
-    val size = when {
-        spec.exactLength != null -> " exacta ${spec.exactLength}"
-        spec.minLength != 4 -> " ${spec.minLength}+"
-        else -> " 4+"
-    }
-    return "${spec.count}× $type$plural$size"
 }
