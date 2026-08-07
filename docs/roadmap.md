@@ -41,6 +41,12 @@
   - [ ] Motor en cliente (misma librería de dominio).
   - [ ] Tablero Carioca (Compose) para partida local vs. bots.
   - [ ] Navegación base y temas.
+  - [ ] Feedback de turno del jugador: pulso en mazo/pozo y carta activa,
+        tick de jugados y cuenta regresiva con aviso visual de timeout (solo
+        avisa, no juega solo en local).
+  - [ ] Estadísticas locales de partida (vueltas, turnos y tiempo por ronda +
+        totales), persistidas en el dispositivo y mostradas al final de la
+        partida.
 
 **Criterio de salida:** una partida completa de Carioca vs. 3 bots en el dispositivo.
 

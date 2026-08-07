@@ -1,10 +1,17 @@
 package com.jarod.card.features.game
 
+import android.graphics.BlurMaskFilter
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,6 +28,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -30,6 +38,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -42,6 +51,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -50,9 +60,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -75,11 +89,15 @@ import com.jarod.card.domain.games.carioca.ComboType
 import com.jarod.card.domain.games.carioca.Meld
 import com.jarod.card.domain.games.carioca.Stage
 import com.jarod.card.features.game.cardskin.CardSkin
+import com.jarod.card.features.game.stats.CumulativeStats
+import com.jarod.card.features.game.stats.GameStats
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 private val DiscardBadgeRed = Color(0xFFC62828)
+private val PlayedCheckGreen = Color(0xFF2E7D32)
+private val TimeoutBorderRed = Color(0xFFD32F2F)
 
 @Composable
 private fun BoxScope.CountBadge(
@@ -97,6 +115,51 @@ private fun BoxScope.CountBadge(
         color = Color.White,
         fontSize = 11.sp,
         fontWeight = FontWeight.Bold
+    )
+}
+
+@Composable
+private fun rememberPulse(): State<Float> {
+    val transition = rememberInfiniteTransition(label = "turnPulse")
+    return transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse"
+    )
+}
+
+/**
+ * Aviso de poco tiempo: borde rojo difuminado que pulsa en todo el perímetro
+ * de la pantalla. No consume gestos, la interacción sigue activa.
+ */
+@Composable
+private fun TurnTimeoutVignette(active: Boolean, modifier: Modifier = Modifier) {
+    if (!active) return
+    val pulse by rememberPulse()
+    Box(
+        modifier
+            .fillMaxSize()
+            .drawWithCache {
+                val paint = android.graphics.Paint().apply {
+                    style = android.graphics.Paint.Style.STROKE
+                    strokeWidth = 12.dp.toPx()
+                    maskFilter = BlurMaskFilter(28.dp.toPx(), BlurMaskFilter.Blur.NORMAL)
+                }
+                val radius = 16.dp.toPx()
+                onDrawBehind {
+                    val alpha = 0.35f + 0.25f * pulse
+                    paint.color = TimeoutBorderRed.copy(alpha = alpha).toArgb()
+                    drawIntoCanvas { canvas ->
+                        canvas.nativeCanvas.drawRoundRect(
+                            0f, 0f, size.width, size.height, radius, radius, paint
+                        )
+                    }
+                }
+            }
     )
 }
 
@@ -151,6 +214,7 @@ fun GameScreen(
                 error = ui.error,
                 roomId = roomId,
                 skin = ui.skin,
+                secondsLeft = ui.secondsLeft,
                 onDrawStock = viewModel::drawFromStock,
                 onDrawDiscard = viewModel::drawFromDiscard,
                 onMeld = viewModel::autoMeld,
@@ -158,10 +222,21 @@ fun GameScreen(
                 onDiscard = viewModel::discard
             )
         }
+        val human = ui.humanId
+        val lowTime = st != null && human != null &&
+            st.phase == CariocaPhase.PLAYING && st.currentPlayer == human &&
+            ui.secondsLeft in 0..st.ruleset.turnTimeout.warningAtSeconds
+        TurnTimeoutVignette(active = lowTime)
     }
 
     if (st?.phase == CariocaPhase.GAME_END && st.result != null) {
-        GameEndDialog(st = st, humanId = ui.humanId, onRestart = viewModel::startGame)
+        GameEndDialog(
+            st = st,
+            humanId = ui.humanId,
+            gameStats = ui.gameStats,
+            cumulativeStats = ui.cumulativeStats,
+            onRestart = viewModel::startGame
+        )
     }
 
     if (showExitDialog) {
@@ -186,6 +261,7 @@ private fun CariocaBoard(
     error: String?,
     roomId: String,
     skin: CardSkin,
+    secondsLeft: Int,
     onDrawStock: () -> Unit,
     onDrawDiscard: () -> Unit,
     onMeld: () -> Unit,
@@ -197,7 +273,7 @@ private fun CariocaBoard(
     val human = st.hands[humanId] ?: emptyList()
 
     Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
-        TopInfo(st, round, myTurn, botsThinking, error, roomId)
+        TopInfo(st, round, myTurn, botsThinking, error, roomId, secondsLeft)
 
         OpponentsRow(st, humanId)
 
@@ -240,7 +316,8 @@ private fun TopInfo(
     myTurn: Boolean,
     botsThinking: Boolean,
     error: String?,
-    roomId: String
+    roomId: String,
+    secondsLeft: Int
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -261,11 +338,26 @@ private fun TopInfo(
                 Spacer(Modifier.width(6.dp))
                 Text("Jugando…", style = MaterialTheme.typography.bodySmall)
             }
-            myTurn -> Text(
-                text = "Tu turno",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold
-            )
+            myTurn -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Tu turno",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                if (secondsLeft >= 0) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "· ${secondsLeft}s",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (secondsLeft <= st.ruleset.turnTimeout.warningAtSeconds) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        }
+                    )
+                }
+            }
         }
     }
     if (error != null) {
@@ -291,6 +383,7 @@ private fun OpponentsRow(st: CariocaState, humanId: PlayerId) {
                 score = st.scores[p] ?: 0,
                 handCount = st.hands[p]!!.size,
                 melded = p in st.meldedThisRound,
+                played = p in st.playedThisLap,
                 isTurn = st.currentPlayer == p && st.phase == CariocaPhase.PLAYING,
                 modifier = Modifier.weight(1f)
             )
@@ -304,18 +397,36 @@ private fun PlayerCard(
     score: Int,
     handCount: Int,
     melded: Boolean,
+    played: Boolean,
     isTurn: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val pulse by rememberPulse()
     Surface(
-        modifier = modifier,
+        modifier = modifier
+            .graphicsLayer {
+                val s = if (isTurn) 1f + 0.03f * pulse else 1f
+                scaleX = s
+                scaleY = s
+            },
         shape = RoundedCornerShape(10.dp),
         color = if (isTurn) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
         border = if (isTurn) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
     ) {
         Box(Modifier.padding(8.dp)) {
             Column {
-                Text(name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    if (played) {
+                        Spacer(Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = "Ya jugó",
+                            modifier = Modifier.size(14.dp),
+                            tint = PlayedCheckGreen
+                        )
+                    }
+                }
                 ScoreChip(score)
             }
             CountBadge(handCount, offsetX = 4.dp, offsetY = (-6).dp)
@@ -377,6 +488,9 @@ private fun StockDiscardRow(
     onDrawStock: () -> Unit,
     onDrawDiscard: () -> Unit
 ) {
+    val pulse by rememberPulse()
+    val canDrawStock = myTurn && st.stage == Stage.DRAW && st.stock.isNotEmpty()
+    val canDrawDiscard = myTurn && st.stage == Stage.DRAW && st.discard.isNotEmpty()
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -389,10 +503,13 @@ private fun StockDiscardRow(
             val top = st.stock.lastOrNull()
             Box {
                 CardBack(
-                    modifier = Modifier.clickable(
-                        enabled = myTurn && st.stage == Stage.DRAW && st.stock.isNotEmpty(),
-                        onClick = onDrawStock
-                    ),
+                    modifier = Modifier
+                        .clickable(enabled = canDrawStock, onClick = onDrawStock)
+                        .graphicsLayer {
+                            val s = if (canDrawStock) 1f + 0.04f * pulse else 1f
+                            scaleX = s
+                            scaleY = s
+                        },
                     skin = skin,
                     deckIndex = top?.setIndex ?: 0
                 )
@@ -409,10 +526,13 @@ private fun StockDiscardRow(
                     CardFace(
                         card = top,
                         skin = skin,
-                        modifier = Modifier.clickable(
-                            enabled = myTurn && st.stage == Stage.DRAW && st.discard.isNotEmpty(),
-                            onClick = onDrawDiscard
-                        )
+                        modifier = Modifier
+                            .clickable(enabled = canDrawDiscard, onClick = onDrawDiscard)
+                            .graphicsLayer {
+                                val s = if (canDrawDiscard) 1f + 0.04f * pulse else 1f
+                                scaleX = s
+                                scaleY = s
+                            }
                     )
                 } else {
                     CardBack(width = 44.dp, height = 62.dp, skin = skin)
@@ -652,18 +772,63 @@ private fun HandRow(
 // ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun GameEndDialog(st: CariocaState, humanId: PlayerId?, onRestart: () -> Unit) {
+private fun GameEndDialog(
+    st: CariocaState,
+    humanId: PlayerId?,
+    gameStats: GameStats?,
+    cumulativeStats: CumulativeStats,
+    onRestart: () -> Unit
+) {
     val rankings = st.result?.rankings.orEmpty().sortedBy { it.rank }
     AlertDialog(
         onDismissRequest = {},
         title = { Text("Fin de la partida") },
         text = {
-            Column {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .heightIn(max = 380.dp)
+            ) {
                 rankings.forEach { r ->
                     Text(
                         text = "${r.rank}. ${nameOf(r.playerId, humanId)} — ${r.score} pts (${r.roundsWon} rondas)",
                         style = MaterialTheme.typography.bodyMedium
                     )
+                }
+                if (gameStats != null) {
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                    Text(
+                        text = "Estadísticas de la partida",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    gameStats.rounds.forEach { rs ->
+                        Text(
+                            text = "Ronda ${rs.round}: ${plural(rs.laps, "vuelta")} · " +
+                                "${plural(rs.turns, "turno")} · ${formatDuration(rs.elapsedMillis)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
+                    Text(
+                        text = "Total: ${plural(gameStats.totalLaps, "vuelta")} · " +
+                            "${plural(gameStats.totalTurns, "turno")} · ${formatDuration(gameStats.totalTimeMillis)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                    if (cumulativeStats.gamesPlayed > 0) {
+                        Text(
+                            text = "Tus totales (${plural(cumulativeStats.gamesPlayed, "partida")}): " +
+                                "${plural(cumulativeStats.roundsPlayed, "ronda")} · " +
+                                "${plural(cumulativeStats.laps, "vuelta")} · " +
+                                "${plural(cumulativeStats.turns, "turno")} · " +
+                                formatDuration(cumulativeStats.totalTimeMillis),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
                 }
             }
         },
@@ -671,6 +836,15 @@ private fun GameEndDialog(st: CariocaState, humanId: PlayerId?, onRestart: () ->
             TextButton(onClick = onRestart) { Text("Jugar de nuevo") }
         }
     )
+}
+
+private fun plural(n: Int, singular: String): String = "$n $singular${if (n == 1) "" else "s"}"
+
+private fun formatDuration(ms: Long): String {
+    val totalSec = ms / 1000
+    val min = totalSec / 60
+    val sec = totalSec % 60
+    return if (min > 0) "${min}m ${sec}s" else "${sec}s"
 }
 
 // ──────────────────────────────────────────────────────────────

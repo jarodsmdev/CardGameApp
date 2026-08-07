@@ -6,6 +6,7 @@ import com.jarod.card.core.util.DispatchersProvider
 import com.jarod.card.domain.core.JokerCard
 import com.jarod.card.domain.engine.GameAction
 import com.jarod.card.domain.engine.PlayerId
+import com.jarod.card.domain.engine.TurnCountdown
 import com.jarod.card.domain.games.carioca.CariocaAction
 import com.jarod.card.domain.games.carioca.CariocaBot
 import com.jarod.card.domain.games.carioca.CariocaGame
@@ -19,6 +20,10 @@ import com.jarod.card.domain.games.carioca.MeldAction
 import com.jarod.card.domain.games.carioca.Stage
 import com.jarod.card.features.game.cardskin.CardSkin
 import com.jarod.card.features.game.cardskin.CardSkinStore
+import com.jarod.card.features.game.stats.CumulativeStats
+import com.jarod.card.features.game.stats.GameStats
+import com.jarod.card.features.game.stats.GameStatsStore
+import com.jarod.card.features.game.stats.GameStatsTracker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -34,20 +39,27 @@ data class GameUiState(
     val humanId: PlayerId? = null,
     val error: String? = null,
     val botsThinking: Boolean = false,
+    val secondsLeft: Int = -1,
+    val gameStats: GameStats? = null,
+    val cumulativeStats: CumulativeStats = CumulativeStats(),
     val skin: CardSkin = CardSkin()
 )
 
 @HiltViewModel
 class GameViewModel @Inject constructor(
     private val dispatchers: DispatchersProvider,
-    private val skinStore: CardSkinStore
+    private val skinStore: CardSkinStore,
+    private val statsStore: GameStatsStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(GameUiState(skin = skinStore.read()))
     val uiState: StateFlow<GameUiState> = _uiState.asStateFlow()
 
+    private val statsTracker = GameStatsTracker()
+
     private val rng = java.util.Random()
     private var botJob: Job? = null
+    private var turnTimerJob: Job? = null
 
     init {
         startGame()
@@ -55,6 +67,8 @@ class GameViewModel @Inject constructor(
 
     fun startGame(ruleset: CariocaRuleset = CariocaRuleset(), seed: Long? = null) {
         botJob?.cancel()
+        turnTimerJob?.cancel()
+        turnTimerJob = null
         val gameSeed = seed ?: rng.nextLong()
         viewModelScope.launch {
             val players = listOf(PlayerId("tu")) + (1..3).map { PlayerId("bot$it") }
@@ -63,8 +77,14 @@ class GameViewModel @Inject constructor(
                 state = transition.state,
                 humanId = players.first(),
                 botsThinking = false,
-                error = null
+                error = null,
+                secondsLeft = -1,
+                gameStats = null,
+                cumulativeStats = statsStore.read()
             )
+            statsTracker.startGame()
+            trackState(transition.state)
+            syncTurnTimer()
             runBotsIfNeeded()
         }
     }
@@ -112,6 +132,8 @@ class GameViewModel @Inject constructor(
         }
         val transition = CariocaGame.perform(st, action)
         _uiState.value = _uiState.value.copy(state = transition.state, error = null)
+        trackState(transition.state)
+        syncTurnTimer()
         runBotsIfNeeded()
     }
 
@@ -134,19 +156,24 @@ class GameViewModel @Inject constructor(
                     val player = current.currentPlayer ?: break
                     if (player == _uiState.value.humanId) break
 
+                    withContext(dispatchers.main) {
+                        _uiState.value = _uiState.value.copy(state = current, botsThinking = true)
+                    }
+                    delay(BOT_DELAY_MS)
+
                     val botRng = java.util.Random()
                     val action = CariocaBot.chooseAction(current, player, botRng)
                     val vr = CariocaGame.canPerform(current, action)
-                    val next = if (vr.valid) {
+                    current = if (vr.valid) {
                         CariocaGame.perform(current, action).state
                     } else {
                         fallbackAction(current, player).let { CariocaGame.perform(current, it).state }
                     }
-                    current = next
-                    delay(BOT_DELAY_MS)
                 }
                 withContext(dispatchers.main) {
                     _uiState.value = _uiState.value.copy(state = current, botsThinking = false)
+                    if (current != null) trackState(current)
+                    syncTurnTimer()
                 }
             } catch (e: Exception) {
                 withContext(dispatchers.main) {
@@ -165,7 +192,66 @@ class GameViewModel @Inject constructor(
 
     private fun currentState(): CariocaState? = _uiState.value.state
 
+    // ──────────────────────────────────────────────────────────────
+    // Estadísticas de partida (vueltas, turnos, tiempo por ronda)
+    // ──────────────────────────────────────────────────────────────
+    private fun trackState(st: CariocaState) {
+        statsTracker.onState(st)
+        if (st.phase == CariocaPhase.GAME_END && _uiState.value.gameStats == null) {
+            val stats = statsTracker.result()
+            val played = CumulativeStats(
+                gamesPlayed = 1,
+                roundsPlayed = stats.rounds.size,
+                laps = stats.totalLaps,
+                turns = stats.totalTurns,
+                totalTimeMillis = stats.totalTimeMillis
+            )
+            _uiState.value = _uiState.value.copy(
+                gameStats = stats,
+                cumulativeStats = _uiState.value.cumulativeStats + played
+            )
+            statsStore.add(played)
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Temporizador del turno humano (aviso visual, genérico TurnTimeout)
+    // ──────────────────────────────────────────────────────────────
+    private fun syncTurnTimer() {
+        val st = currentState() ?: return
+        val human = _uiState.value.humanId ?: return
+        val timeout = st.ruleset.turnTimeout
+        val run = st.phase == CariocaPhase.PLAYING && st.currentPlayer == human && timeout.enabled
+
+        if (run && turnTimerJob?.isActive == true) return
+
+        turnTimerJob?.cancel()
+        turnTimerJob = null
+
+        if (!run) {
+            if (_uiState.value.secondsLeft != -1) {
+                _uiState.value = _uiState.value.copy(secondsLeft = -1)
+            }
+            return
+        }
+
+        val countdown = TurnCountdown(timeout)
+        _uiState.value = _uiState.value.copy(secondsLeft = countdown.remainingSeconds)
+        turnTimerJob = viewModelScope.launch(dispatchers.default) {
+            while (!countdown.expired) {
+                delay(1000)
+                countdown.tick()
+                withContext(dispatchers.main) {
+                    val cur = currentState()
+                    if (cur?.phase == CariocaPhase.PLAYING && cur.currentPlayer == _uiState.value.humanId) {
+                        _uiState.value = _uiState.value.copy(secondsLeft = countdown.remainingSeconds)
+                    }
+                }
+            }
+        }
+    }
+
     companion object {
-        private const val BOT_DELAY_MS = 350L
+        private const val BOT_DELAY_MS = 700L
     }
 }
