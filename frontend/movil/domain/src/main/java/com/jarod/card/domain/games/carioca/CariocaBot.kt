@@ -43,7 +43,8 @@ object CariocaBot {
             }
         }
 
-        // 2. Lay-off (extender juegos propios; ajenos si everMelded)
+        // 2. Lay-off (extender juegos propios y ajenos; solo desde el turno
+        //    siguiente a bajarse, rules.md §8)
         findLayOff(state, playerId)?.let { return it }
 
         // 3. Descartar: carta de mayor valor inútil (no joker, no en combos parciales)
@@ -51,10 +52,13 @@ object CariocaBot {
         return DiscardAction(playerId, discard.id)
     }
 
-    /** Encuentra un lay-off válido (juegos propios y ajenos si ya bajó en un turno anterior). */
+    /** Encuentra un lay-off válido (juegos propios y ajenos) para quien ya
+     *  se bajó en la ronda actual y en un turno anterior (rules.md §8). */
     fun findLayOff(state: CariocaState, playerId: PlayerId): LayOffAction? {
         val hand = state.hands[playerId]!!
         if (hand.isEmpty()) return null
+        // Solo quien se bajó en la ronda actual y no en el mismo turno puede dar cartas
+        if (playerId !in state.meldedThisRound || playerId in state.meldedThisTurn) return null
         // Propios
         val ownMelds = state.table[playerId]!!
         for ((i, meld) in ownMelds.withIndex()) {
@@ -64,15 +68,13 @@ object CariocaBot {
                 }
             }
         }
-        // Ajenos: solo si ya bajó antes y no en el mismo turno (rules.md §8)
-        if (playerId in state.everMelded && playerId !in state.meldedThisTurn) {
-            for ((owner, melds) in state.table) {
-                if (owner == playerId) continue
-                for ((i, meld) in melds.withIndex()) {
-                    for (card in hand) {
-                        if (MeldValidator.validate(meld.cards + card, state.ruleset) != null) {
-                            return LayOffAction(playerId, card.id, owner, i)
-                        }
+        // Ajenos
+        for ((owner, melds) in state.table) {
+            if (owner == playerId) continue
+            for ((i, meld) in melds.withIndex()) {
+                for (card in hand) {
+                    if (MeldValidator.validate(meld.cards + card, state.ruleset) != null) {
+                        return LayOffAction(playerId, card.id, owner, i)
                     }
                 }
             }

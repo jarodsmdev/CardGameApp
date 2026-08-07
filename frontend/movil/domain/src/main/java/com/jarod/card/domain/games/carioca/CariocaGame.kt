@@ -195,6 +195,8 @@ object CariocaGame : Game<CariocaState> {
     // ──────────────────────────────────────────────────────────────
     private fun validateMeld(state: CariocaState, a: MeldAction): ValidationResult {
         val p = a.playerId
+        // Solo se baja una vez por ronda (rules.md §8)
+        if (p in state.meldedThisRound) return reject("Ya te bajaste en esta ronda")
         val hand = state.hands[p]!!
         val allCards = a.groups.flatMap { it.cards }
         // Cartas están en mano y no repetidas
@@ -225,7 +227,6 @@ object CariocaGame : Game<CariocaState> {
         val newHands = state.hands + (p to newHand)
         val newTable = state.table + (p to (state.table[p]!! + a.groups))
         val newMelded = state.meldedThisRound + p
-        val newEver = state.everMelded + p
         val groupIds = a.groups.map { it.cardIds() }
         val events = listOf(CardsMeld(state.seq + 1, p, groupIds))
 
@@ -235,7 +236,6 @@ object CariocaGame : Game<CariocaState> {
             table = newTable,
             meldedThisRound = newMelded,
             meldedThisTurn = state.meldedThisTurn + p,
-            everMelded = newEver,
             seq = state.seq + 1
         )
         return if (newHand.isEmpty()) {
@@ -292,8 +292,8 @@ object CariocaGame : Game<CariocaState> {
     }
 
     // ──────────────────────────────────────────────────────────────
-    // Añadir a juegos ajenos/propios (lay-off) — bajado y no en el
-    // mismo turno en que te bajaste (rules.md §8)
+    // Añadir a juegos ajenos/propios (lay-off) — bajado en la ronda
+    // actual y no en el mismo turno en que te bajaste (rules.md §8)
     // ──────────────────────────────────────────────────────────────
     private fun validateLayOff(state: CariocaState, a: LayOffAction): ValidationResult {
         val p = a.playerId
@@ -301,9 +301,9 @@ object CariocaGame : Game<CariocaState> {
         val card = hand.find { it.id == a.cardId } ?: return reject("Carta no en mano")
         val ownerMelds = state.table[a.meldOwner] ?: return reject("Dueño no tiene juegos")
         if (a.meldIndex !in ownerMelds.indices) return reject("Índice de juego inválido")
-        // Solo si el jugador ya se bajó alguna vez y no en este mismo turno (rules.md §8)
-        val canLayOffToOthers = p in state.everMelded && p !in state.meldedThisTurn
-        if (a.meldOwner != p && !canLayOffToOthers) return reject("Solo se puede añadir a juegos ajenos si ya te bajaste en un turno anterior")
+        // Solo quien se bajó en la ronda actual y en un turno anterior puede dar cartas (rules.md §8)
+        val canLayOff = p in state.meldedThisRound && p !in state.meldedThisTurn
+        if (!canLayOff) return reject("Para dar cartas debes haberte bajado en un turno anterior")
         // Validar resultado
         val oldMeld = ownerMelds[a.meldIndex]
         val newMeld = MeldValidator.validate(oldMeld.cards + card, state.ruleset)

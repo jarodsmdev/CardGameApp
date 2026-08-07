@@ -120,20 +120,29 @@ comodines** en la base; solo actúan como comodines si se activa la **variante
 
 ## 8. Bajarse y añadir cartas a juegos ajenos (lay-off)
 
-- **Bajarse por primera vez:** quien da vuelta sus cartas **no puede añadir
-  cartas a juegos ajenos en ese mismo momento**.
-- Quienes **ya se bajaron en una corrida/ronda anterior** sí pueden extender las
-  combinaciones de otros bajados.
-- **Después** de bajarse (turno siguiente), el jugador puede deshacerse de cartas
-  añadiéndolas a sus propios juegos o a los de otros bajados.
-- **En un turno** el jugador puede deshacerse de las cartas que quiera, incluso
-  bajar **toda su mano**.
-- Según la ronda, solo se puede bajar lo que la ronda exige:
-  - Si la ronda es solo **tríos**, no se puede bajar nada de escalas (y
-    viceversa).
-  - Si la ronda exige **ambas**, se pueden bajar ambas (p. ej. un trío de 5 y una
-    escala `3♦-2♦-A♦-K♦`), y luego **continuar** cada combinación (otro 5 en el
-    trío, un `4♦` en la escala).
+### Bajarse
+
+1. **Cada jugador puede bajarse como máximo una vez por ronda** (bots incluidos).
+2. Al bajarse, debe colocar en la mesa **únicamente** las combinaciones que exige la ronda (por ejemplo: 2 tríos, 1 trío y 1 escala, etc.).
+3. Una vez que un jugador ya se bajó en esa ronda, **no puede volver a realizar otra bajada**, aunque más adelante forme nuevas combinaciones.
+
+### Añadir cartas (lay-off)
+
+1. **Añadir cartas (lay-off) es una acción distinta de bajarse.** Consiste en agregar cartas a juegos propios o de otros jugadores que ya están sobre la mesa.
+2. Para poder hacer lay-off, el jugador **debe haberse bajado previamente en esa misma ronda**.
+3. Además, **no puede hacer lay-off en el mismo turno en que se bajó**. Solo podrá empezar a añadir cartas **desde su siguiente turno** y mientras dure esa ronda.
+4. Un jugador que aún no se ha bajado en la ronda actual **no puede añadir cartas**, ni a juegos propios ni a juegos ajenos, aunque existan combinaciones válidas sobre la mesa.
+5. Las bajadas realizadas en rondas anteriores **no otorgan** el derecho a hacer lay-off en la ronda actual.
+
+### Restricciones adicionales
+
+1. En un mismo turno, el jugador puede deshacerse de tantas cartas como sea posible mediante lay-off, incluso quedarse sin cartas en la mano.
+2. Según la ronda, solo se puede bajar lo que esta exige:
+
+  - Si la ronda es solo de **tríos**, no se pueden bajar escalas.
+  - Si la ronda es solo de **escalas**, no se pueden bajar tríos.
+  - Si la ronda exige ambas, se pueden bajar ambas (por ejemplo, un trío de 5 y una escala `3♦-2♦-A♦-K♦`) y, en turnos posteriores, continuar esas combinaciones mediante lay-off (por ejemplo, agregar otro 5 al trío o un `4♦` a la escala).
+
 
 ## 9. Rondas
 
