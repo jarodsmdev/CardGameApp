@@ -125,4 +125,85 @@ object MeldValidator {
         }
         return ranks.size != ranks.distinct().size
     }
+
+    /**
+     * Valida un lay-off sobre un meld YA CANÓNICO, preservando las posiciones
+     * de los jokers: en escalas el joker tiene rango fijo y no puede "chocar"
+     * con la carta natural que se intenta añadir.
+     */
+    fun validateLayOff(
+        oldMeld: Meld,
+        newCard: Card,
+        rules: CariocaRuleset
+    ): Meld? {
+        return when (oldMeld) {
+            is Meld.Triple -> validateLayOffTriple(oldMeld, newCard, rules)
+            is Meld.Run -> validateLayOffRun(oldMeld, newCard, rules)
+        }
+    }
+
+    private fun validateLayOffTriple(
+        triple: Meld.Triple,
+        newCard: Card,
+        rules: CariocaRuleset
+    ): Meld.Triple? {
+        // En tríos el orden no importa; solo se verifica mismo rango y límite de jokers
+        val allCards = triple.cards + newCard
+        return validateTriple(allCards)
+    }
+
+    private fun validateLayOffRun(
+        run: Meld.Run,
+        newCard: Card,
+        rules: CariocaRuleset
+    ): Meld.Run? {
+        // Solo cartas reales se pueden añadir (no jokers) en lay-off estándar
+        val newReal = newCard as? PlayingCard ?: return null
+
+        // Misma pinta si la regla lo exige
+        if (rules.runRules.sameSuit) {
+            val suit = run.cards.filterIsInstance<PlayingCard>().firstOrNull()?.suit
+            if (suit != null && newReal.suit != suit) return null
+        }
+
+        // Obtener rango mínimo y máximo representados por la run canónica
+        val (minIdx, maxIdx) = runMinMaxCycleIndex(run, rules)
+        val newIdx = newReal.rank.cycleIndex
+
+        // Solo se permite extender en los extremos (min-1 o max+1)
+        val extendedLow = (minIdx - 1 + Rank.CYCLE_SIZE) % Rank.CYCLE_SIZE
+        val extendedHigh = (maxIdx + 1) % Rank.CYCLE_SIZE
+
+        val isLowExtension = newIdx == extendedLow
+        val isHighExtension = newIdx == extendedHigh
+
+        // Respetar regla de wraparound
+        if (isLowExtension && minIdx == 0 && !rules.runRules.wraparound) return null
+        if (isHighExtension && maxIdx == Rank.CYCLE_SIZE - 1 && !rules.runRules.wraparound) return null
+
+        if (!isLowExtension && !isHighExtension) return null
+
+        // Construir la nueva run canónica extendida: insertar la carta en el extremo
+        val jokers = run.cards.filterIsInstance<JokerCard>().toMutableList()
+        val newCards = if (isLowExtension) {
+            // Prepend: la carta nueva va al principio, el resto se desplaza
+            listOf(newReal) + run.cards.map { if (it is JokerCard) { jokers.removeAt(0); it } else it }
+        } else {
+            // Append: la carta nueva va al final
+            run.cards + newReal
+        }
+        return Meld.Run(newCards)
+    }
+
+    /** Devuelve (minCycleIndex, maxCycleIndex) representados por una run canónica. */
+    private fun runMinMaxCycleIndex(run: Meld.Run, rules: CariocaRuleset): Pair<Int, Int> {
+        // Encontrar la primera carta real para calcular el start del ciclo
+        val firstReal = run.cards.firstOrNull { it is PlayingCard } as? PlayingCard
+            ?: return Pair(0, run.cards.size - 1) // fallback: sin reales
+        val firstRealIdx = run.cards.indexOf(firstReal)
+        val start = (firstReal.rank.cycleIndex - firstRealIdx + Rank.CYCLE_SIZE) % Rank.CYCLE_SIZE
+        val len = run.cards.size
+        val max = (start + len - 1) % Rank.CYCLE_SIZE
+        return Pair(start, max)
+    }
 }

@@ -329,6 +329,55 @@ class CariocaGameTest {
     }
 
     @Test
+    fun `lay-off a escala con comodin - el 6 permitido y el 5 choca con el comodin`() {
+        // Ronda 1 = 1 escala (min 4) para bajarse solo con la escala
+        val runRules = CariocaRuleset(rounds = listOf(
+            CariocaRound(1, listOf(ComboSpec(ComboType.RUN, 1, minLength = 4)))
+        ))
+        var res = CariocaGame.createGame(players, runRules, 12345L)
+        var st = res.state
+        val current = st.currentPlayer!!
+        val other = players.first { it != current }
+
+        // Robar
+        st = CariocaGame.perform(st, DrawFromStock(current)).state
+
+        // Mano: escala 2♥ 3♥ 4♥ ? (el comodín representa el 5) + relleno
+        val runCards = listOf(
+            card(Suit.HEART, Rank.TWO),
+            card(Suit.HEART, Rank.THREE),
+            card(Suit.HEART, Rank.FOUR),
+            joker()
+        )
+        val hand = runCards + st.hands[current]!!.filter { it !in runCards }.take(9)
+        st = st.copy(hands = st.hands + (current to hand))
+
+        // Se baja con la escala
+        st = CariocaGame.perform(st, MeldAction(current, listOf(Meld.Run(runCards)))).state
+        assertTrue(current in st.meldedThisRound)
+        assertEquals(1, st.table[current]!!.size)
+
+        // other también está bajado (trío) para poder dar cartas
+        val otherTriple = Meld.Triple(listOf(card(Suit.HEART, Rank.NINE), card(Suit.SPADE, Rank.NINE), card(Suit.CLUB, Rank.NINE)))
+        st = st.copy(
+            table = st.table + (other to listOf(otherTriple)),
+            meldedThisRound = st.meldedThisRound + other
+        )
+
+        // El 6 debe poder añadirse: la escala queda 2-3-4-5-6 (el ? sigue siendo el 5)
+        val six = card(Suit.HEART, Rank.SIX)
+        st = st.copy(hands = st.hands + (other to (st.hands[other]!! + six)))
+        val sixRes = CariocaGame.canPerform(st, LayOffAction(other, six.id, current, 0))
+        assertTrue("El 6 debe poder añadirse a 2-3-4-?", sixRes.valid)
+
+        // El 5 debe chocar con el comodín (que ya representa el 5)
+        val five = card(Suit.HEART, Rank.FIVE)
+        st = st.copy(hands = st.hands + (other to (st.hands[other]!! + five)))
+        val fiveRes = CariocaGame.canPerform(st, LayOffAction(other, five.id, current, 0))
+        assertFalse("El 5 debe chocar con el comodín (el ? ya es el 5)", fiveRes.valid)
+    }
+
+    @Test
     fun `partida completa vs 3 bots termina en GAME_END`() {
         // Test de integración: partida automática con bots. Se usa un ruleset
         // corto (2 rondas de 2 tríos) para que la heurística simple pueda
