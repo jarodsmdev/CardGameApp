@@ -41,7 +41,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Loop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -82,6 +85,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -931,7 +935,8 @@ private fun RoundEndDialog(
             totalScore = r.score,
             roundsWon = r.roundsWon,
             isCurrentPlayer = isMe,
-            perRoundScores = emptyList() // TODO: tracking por ronda
+            perRoundScores = emptyList(), // TODO: tracking por ronda
+            meldsText = describeMelds(st.table[r.playerId].orEmpty())
         )
     }
 
@@ -943,14 +948,26 @@ private fun RoundEndDialog(
                 // Ganador de la ronda
                 val winnerName = nameOf(info.winner, humanId)
                 val pointsGained = info.pointsGained[info.winner] ?: 0
-                Text(
-                    text = "🏆 $winnerName gana la ronda (${pointsGained} pts)",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MedalGold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.EmojiEvents,
+                        contentDescription = null,
+                        tint = MedalGold,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "$winnerName gana la ronda (${pointsGained} pts)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MedalGold,
+                        textAlign = TextAlign.Center
+                    )
+                }
 
                 // Resumen congelado de la ronda (duración y turnos)
                 roundSummary?.let { summary ->
@@ -1017,20 +1034,40 @@ private fun RoundSummaryHeader(summary: RoundStats) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(modifier = Modifier.padding(vertical = 12.dp)) {
-                SummaryStat(emoji = "⏱️", label = "Duración", value = formatClock(summary.elapsedMillis))
-                SummaryStat(emoji = "🔄", label = "Turnos", value = summary.turns.toString())
+                SummaryStat(
+                    icon = Icons.Filled.AccessTime,
+                    contentDescription = "Duración",
+                    label = "Duración",
+                    value = formatClock(summary.elapsedMillis)
+                )
+                SummaryStat(
+                    icon = Icons.Filled.Loop,
+                    contentDescription = "Turnos",
+                    label = "Turnos",
+                    value = summary.turns.toString()
+                )
             }
         }
     }
 }
 
 @Composable
-private fun RowScope.SummaryStat(emoji: String, label: String, value: String) {
+private fun RowScope.SummaryStat(
+    icon: ImageVector,
+    contentDescription: String,
+    label: String,
+    value: String
+) {
     Column(
         modifier = Modifier.weight(1f),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(emoji, style = MaterialTheme.typography.titleMedium)
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(24.dp)
+        )
         Spacer(Modifier.height(4.dp))
         Text(
             text = value,
@@ -1060,7 +1097,20 @@ data class ScoreboardEntry(
     val isCurrentPlayer: Boolean = false,
     /** Puntos por ronda (índice = número de ronda - 1). */
     val perRoundScores: List<Int> = emptyList(),
+    /** Lo que el jugador bajó en la ronda (ej. "2 tríos · 1 escala"). Null si no hay info. */
+    val meldsText: String? = null,
 )
+
+/** Descripción compacta de las combinaciones bajadas en la ronda (ej. "2 tríos · 1 escala"). */
+private fun describeMelds(melds: List<Meld>): String? {
+    if (melds.isEmpty()) return null
+    val trios = melds.count { it is Meld.Triple }
+    val runs = melds.count { it is Meld.Run }
+    return buildList {
+        if (trios > 0) add(plural(trios, "trío"))
+        if (runs > 0) add(plural(runs, "escala"))
+    }.joinToString(" · ")
+}
 
 // Helper: fila de scores por ronda dentro del desglose
 @Composable
@@ -1156,6 +1206,13 @@ fun Scoreboard(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            entry.meldsText?.let { melds ->
+                                Text(
+                                    text = "Bajó: $melds",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                         // Total score
                         Column(horizontalAlignment = Alignment.End) {
