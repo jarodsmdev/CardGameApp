@@ -211,13 +211,18 @@ El motor contabiliza métricas acumulativas en el estado de Carioca
 total:
 
 - **`GameStatsTracker`**: agrega por **ronda** (vueltas, turnos y tiempo
-  empleado) y cierra la ronda al detectar el cambio de ronda o `GAME_END`.
+  empleado). La ronda se **congela al llegar a `ROUND_END`** (o `GAME_END` en la
+  última): duración y turnos quedan fijos aunque el scoreboard siga abierto o
+  lleguen estados repetidos; solo se reinicia la línea base al **repartir** la
+  siguiente ronda ("Continuar").
 - **`GameStats` / `RoundStats` / `CumulativeStats`**: modelo inmutable con
   `operator plus` para acumulación.
 - **`GameStatsStore`** (`SharedPreferences`): persiste **en el dispositivo**
   `gamesPlayed`, `roundsPlayed`, `laps`, `turns` y `totalTimeMillis`, acumulados
   entre partidas.
-- El móvil muestra el resumen en el diálogo final (`GameEndDialog`).
+- El móvil muestra el resumen en el diálogo final (`GameEndDialog`) y el
+  **resumen congelado de la ronda** (duración y turnos) en el scoreboard de
+  `ROUND_END` (`RoundEndDialog`).
 - **Online (Fase 3):** las estadísticas por usuario pasarán a vivirlas en el
   servidor (tabla `stats`, `docs/database.md`), alimentadas por `GameResult`.
 

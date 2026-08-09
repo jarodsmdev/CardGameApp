@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -101,6 +102,7 @@ import com.jarod.card.domain.games.carioca.Stage
 import com.jarod.card.features.game.cardskin.CardSkin
 import com.jarod.card.features.game.stats.CumulativeStats
 import com.jarod.card.features.game.stats.GameStats
+import com.jarod.card.features.game.stats.RoundStats
 import com.jarod.card.features.game.GameViewModel
 import com.jarod.card.features.game.RoundEndInfo
 import kotlin.math.abs
@@ -316,6 +318,7 @@ fun GameScreen(
                 info = info,
                 st = st,
                 humanId = ui.humanId,
+                roundSummary = ui.roundSummary,
                 onContinue = { viewModel.clearRoundEnd() }
             )
         }
@@ -902,6 +905,7 @@ private fun RoundEndDialog(
     info: RoundEndInfo,
     st: CariocaState,
     humanId: PlayerId?,
+    roundSummary: RoundStats?,
     onContinue: () -> Unit
 ) {
     // Construir entries del scoreboard con scores actuales
@@ -945,6 +949,11 @@ private fun RoundEndDialog(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
                 )
 
+                // Resumen congelado de la ronda (duración y turnos)
+                roundSummary?.let { summary ->
+                    RoundSummaryHeader(summary = summary)
+                }
+
                 // Scoreboard compacto (sin "Jugar de nuevo": esa acción solo
                 // corresponde al final de la partida, en GameEndDialog)
                 Scoreboard(
@@ -969,6 +978,88 @@ private fun formatDuration(ms: Long): String {
     val min = totalSec / 60
     val sec = totalSec % 60
     return if (min > 0) "${min}m ${sec}s" else "${sec}s"
+}
+
+/** Reloj MM:SS (o HH:MM:SS a partir de 1h) para el resumen de ronda. */
+private fun formatClock(ms: Long): String {
+    val totalSec = ms / 1000
+    val h = totalSec / 3600
+    val m = (totalSec % 3600) / 60
+    val s = totalSec % 60
+    fun two(n: Long) = n.toString().padStart(2, '0')
+    return if (h > 0) "$h:${two(m)}:${two(s)}" else "${two(m)}:${two(s)}"
+}
+
+/**
+ * Resumen congelado de la ronda terminada (duración y turnos), con una breve
+ * animación de entrada. Los valores vienen de RoundStats ya cerrado en
+ * ROUND_END, así que no cambian mientras el scoreboard esté abierto.
+ */
+@Composable
+private fun RoundSummaryHeader(summary: RoundStats) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { visible = true }
+    val animAlpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(durationMillis = 350),
+        label = "roundSummaryAlpha"
+    )
+    val animScale by animateFloatAsState(
+        targetValue = if (visible) 1f else 0.85f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        label = "roundSummaryScale"
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                alpha = animAlpha
+                scaleX = animScale
+                scaleY = animScale
+            }
+            .padding(bottom = 16.dp)
+    ) {
+        Text(
+            text = "RONDA TERMINADA",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+        )
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(modifier = Modifier.padding(vertical = 12.dp)) {
+                SummaryStat(emoji = "⏱️", label = "Duración", value = formatClock(summary.elapsedMillis))
+                SummaryStat(emoji = "🔄", label = "Turnos", value = summary.turns.toString())
+            }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.SummaryStat(emoji: String, label: String, value: String) {
+    Column(
+        modifier = Modifier.weight(1f),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(emoji, style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }
 
 // ──────────────────────────────────────────────────────────────

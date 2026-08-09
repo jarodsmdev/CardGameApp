@@ -218,9 +218,11 @@ ronda, más cartas y más complejidad.**
   los puntajes. Gana quien tiene **menos puntos**.
 - **Empate:** queda mejor posicionado quien haya **ganado más rondas**.
 - **Entre rondas:** al terminar una ronda el juego queda **pausado** mostrando el
-  scoreboard con los resultados; la siguiente ronda **no se reparte ni avanza**
-  hasta que el jugador la confirma ("Continuar"). En la última ronda, el
-  scoreboard conduce a **finalizar la partida** y ver el resultado final.
+  scoreboard con los resultados y un **resumen congelado de la ronda** (duración
+  y turnos, fijos aunque el scoreboard esté abierto); la siguiente ronda **no se
+  reparte ni avanza** hasta que el jugador la confirma ("Continuar"). En la
+  última ronda, el scoreboard conduce a **finalizar la partida** y ver el
+  resultado final.
 
 ## 11. Abandono de ronda y timeout
 
