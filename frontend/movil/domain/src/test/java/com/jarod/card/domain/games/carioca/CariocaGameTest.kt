@@ -205,6 +205,33 @@ class CariocaGameTest {
     }
 
     @Test
+    fun `laps y turns se reinician en cada ronda`() {
+        var res = CariocaGame.createGame(players, rules, 12345L)
+        var st = res.state
+        // Avanzar una vuelta completa en la ronda 1
+        repeat(4) {
+            val p = st.currentPlayer!!
+            st = CariocaGame.perform(st, DrawFromStock(p)).state
+            val c = st.hands[p]!!.last()
+            st = CariocaGame.perform(st, DiscardAction(p, c.id)).state
+        }
+        assertEquals(1, st.laps)
+        assertEquals(4, st.turns)
+        // Terminar la ronda 1 (mano vacía → corte) y empezar la ronda 2
+        val current = st.currentPlayer!!
+        st = CariocaGame.perform(st, DrawFromStock(current)).state
+        val drawn = st.hands[current]!!.last()
+        st = st.copy(hands = st.hands + (current to mutableListOf(drawn)))
+        st = CariocaGame.perform(st, DiscardAction(current, drawn.id)).state
+        assertEquals(CariocaPhase.ROUND_END, st.phase)
+        st = CariocaGame.perform(st, StartNextRound(players.first())).state
+        assertEquals(1, st.roundIndex)
+        // Nueva ronda: contadores empiezan en 0
+        assertEquals(0, st.laps)
+        assertEquals(0, st.turns)
+    }
+
+    @Test
     fun `StartNextRound rechazado fuera de fase ROUND_END`() {
         var res = CariocaGame.createGame(players, rules, 12345L)
         val st = res.state

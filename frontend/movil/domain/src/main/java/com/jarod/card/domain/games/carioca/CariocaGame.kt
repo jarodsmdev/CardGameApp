@@ -160,6 +160,9 @@ object CariocaGame : Game<CariocaState> {
             meldedThisRound = emptySet(),
             meldedThisTurn = emptySet(),
             playedThisLap = emptySet(),
+            // Contadores por ronda: empiezan en 0 en cada reparto.
+            laps = 0,
+            turns = 0,
             currentPlayer = state.players[firstToPlay],
             stage = Stage.DRAW,
             dealerSeat = nextDealer,
