@@ -83,6 +83,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -883,7 +884,8 @@ private fun GameEndDialog(
             totalScore = r.score,
             roundsWon = r.roundsWon,
             isCurrentPlayer = isMe,
-            perRoundScores = emptyList() // TODO: necesitaría tracking por ronda
+            perRoundScores = emptyList(), // TODO: necesitaría tracking por ronda
+            isRoundWinner = r.rank == 1
         )
     }
 
@@ -936,6 +938,8 @@ private fun RoundEndDialog(
             roundsWon = r.roundsWon,
             isCurrentPlayer = isMe,
             perRoundScores = emptyList(), // TODO: tracking por ronda
+            roundPoints = info.pointsGained[r.playerId] ?: 0,
+            isRoundWinner = r.playerId == info.winner,
             meldsText = describeMelds(st.table[r.playerId].orEmpty())
         )
     }
@@ -1099,6 +1103,10 @@ data class ScoreboardEntry(
     val perRoundScores: List<Int> = emptyList(),
     /** Lo que el jugador bajó en la ronda (ej. "2 tríos · 1 escala"). Null si no hay info. */
     val meldsText: String? = null,
+    /** Puntos obtenidos en la ronda que acaba de terminar. Null si no aplica. */
+    val roundPoints: Int? = null,
+    /** Si este jugador es el ganador de la ronda (o campeón al final de la partida). */
+    val isRoundWinner: Boolean = false,
 )
 
 /** Descripción compacta de las combinaciones bajadas en la ronda (ej. "2 tríos · 1 escala"). */
@@ -1136,6 +1144,179 @@ private fun ScoreRow(scores: List<Int?>, totalScore: Int) {
 }
 
 /**
+ * Card de un jugador en el scoreboard: medalla + nombre en la cabecera y,
+ * debajo, dos columnas etiquetadas — "Esta ronda" y "Puntaje total" — para que
+ * ambos conceptos se diferencien de un vistazo. El ganador destaca con borde
+ * dorado, fondo tenue y chip de trofeo.
+ */
+@Composable
+private fun ScoreboardPlayerCard(
+    entry: ScoreboardEntry,
+    revealProgress: Float
+) {
+    val medalColor = when (entry.rank) {
+        1 -> MedalGold
+        2 -> MedalSilver
+        3 -> MedalBronze
+        else -> MedalFourth
+    }
+    val containerColor = when {
+        entry.isRoundWinner -> MedalGold.copy(alpha = 0.12f)
+        entry.isCurrentPlayer -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+        else -> MaterialTheme.colorScheme.surface
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 10.dp)
+            .graphicsLayer {
+                alpha = revealProgress
+                translationY = (1f - revealProgress) * 24f.dp.toPx()
+            },
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        border = if (entry.isRoundWinner) BorderStroke(1.5.dp, MedalGold.copy(alpha = 0.7f)) else null,
+        elevation = CardDefaults.cardElevation(defaultElevation = if (entry.isRoundWinner) 6.dp else 2.dp)
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            // Cabecera: medalla + nombre + chip de ganador
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RankMedal(entry.rank)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = entry.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (entry.isCurrentPlayer) {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "(Tú)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        if (entry.isRoundWinner) {
+                            Spacer(Modifier.width(6.dp))
+                            WinnerChip()
+                        }
+                    }
+                    Text(
+                        text = "${entry.roundsWon} ${plural(entry.roundsWon, "ronda")} ganadas",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    entry.meldsText?.let { melds ->
+                        Text(
+                            text = "Bajó: $melds",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+            HorizontalDivider(Modifier.padding(vertical = 10.dp))
+            // Puntajes etiquetados: esta ronda (principal) vs total
+            Row {
+                if (entry.roundPoints != null) {
+                    ScoreStatColumn(
+                        label = "Esta ronda",
+                        value = entry.roundPoints,
+                        valueColor = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    ScoreStatColumn(
+                        label = "Puntaje total",
+                        value = entry.totalScore,
+                        valueColor = medalColor,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    ScoreStatColumn(
+                        label = "Puntaje total",
+                        value = entry.totalScore,
+                        valueColor = medalColor,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.ScoreStatColumn(
+    label: String,
+    value: Int,
+    valueColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        AnimatedScore(
+            value = value,
+            style = MaterialTheme.typography.headlineSmall,
+            color = valueColor
+        )
+    }
+}
+
+/** Valor con conteo animado (queda fijo al terminar la animación). */
+@Composable
+private fun AnimatedScore(
+    value: Int,
+    style: TextStyle,
+    color: Color
+) {
+    val animated = remember { Animatable(0f) }
+    LaunchedEffect(value) {
+        animated.animateTo(
+            targetValue = value.toFloat(),
+            animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
+        )
+    }
+    Text(
+        text = "${animated.value.roundToInt()} pts",
+        style = style,
+        fontWeight = FontWeight.Bold,
+        color = color
+    )
+}
+
+/** Chip dorado "Ganador" con trofeo. */
+@Composable
+private fun WinnerChip() {
+    Row(
+        modifier = Modifier
+            .background(MedalGold.copy(alpha = 0.15f), CircleShape)
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Filled.EmojiEvents,
+            contentDescription = "Ganador",
+            tint = MedalGold,
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = "Ganador",
+            style = MaterialTheme.typography.labelSmall,
+            color = MedalGold,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+/**
  * Scoreboard genérico: tabla de posiciones con medalla, desglose por ronda,
  * stats de la partida y stats acumuladas.
  *
@@ -1156,83 +1337,20 @@ fun Scoreboard(
         .verticalScroll(rememberScrollState())
         .padding(16.dp)
     ) {
-        // ─── Cabecera: medalla + nombre + total ───
+        // ─── Cabecera: cards de jugadores (medalla + nombre + puntajes) ───
         Column {
-            entries.forEach { entry ->
-                val medalColor = when (entry.rank) {
-                    1 -> MedalGold
-                    2 -> MedalSilver
-                    3 -> MedalBronze
-                    else -> MedalFourth
+            entries.forEachIndexed { index, entry ->
+                var revealed by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    delay(index * 90L)
+                    revealed = true
                 }
-                val bgColor = if (entry.isCurrentPlayer)
-                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                else MaterialTheme.colorScheme.surface
-
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp),
-                    colors = CardDefaults.cardColors(containerColor = bgColor),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Medalla
-                        RankMedal(entry.rank)
-                        Spacer(Modifier.width(12.dp))
-                        // Nombre + indicador "Tú"
-                        Column(Modifier.weight(1f)) {
-                            Row {
-                                Text(
-                                    text = entry.name,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                if (entry.isCurrentPlayer) {
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(
-                                        text = "(Tú)",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                            Text(
-                                text = "${entry.roundsWon} ${plural(entry.roundsWon, "ronda")} ganadas",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            entry.meldsText?.let { melds ->
-                                Text(
-                                    text = "Bajó: $melds",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
-                        // Total score
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = "${entry.totalScore} pts",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = medalColor
-                            )
-                            if (entry.roundsWon > 0) {
-                                Text(
-                                    text = "Ganador",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MedalGold,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-                }
+                val revealProgress by animateFloatAsState(
+                    targetValue = if (revealed) 1f else 0f,
+                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                    label = "cardReveal$index"
+                )
+                ScoreboardPlayerCard(entry = entry, revealProgress = revealProgress)
             }
         }
 
