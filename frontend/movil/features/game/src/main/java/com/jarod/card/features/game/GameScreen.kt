@@ -88,6 +88,8 @@ import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarod.card.core.ui.ConfirmDialog
+import com.jarod.card.core.util.formatClock
+import com.jarod.card.core.util.formatDuration
 import com.jarod.card.domain.engine.GameResult
 import com.jarod.card.domain.engine.PlayerId
 import com.jarod.card.domain.engine.PlayerRanking
@@ -972,23 +974,6 @@ private fun RoundEndDialog(
 }
 
 private fun plural(n: Int, singular: String): String = "$n $singular${if (n == 1) "" else "s"}"
-
-private fun formatDuration(ms: Long): String {
-    val totalSec = ms / 1000
-    val min = totalSec / 60
-    val sec = totalSec % 60
-    return if (min > 0) "${min}m ${sec}s" else "${sec}s"
-}
-
-/** Reloj MM:SS (o HH:MM:SS a partir de 1h) para el resumen de ronda. */
-private fun formatClock(ms: Long): String {
-    val totalSec = ms / 1000
-    val h = totalSec / 3600
-    val m = (totalSec % 3600) / 60
-    val s = totalSec % 60
-    fun two(n: Long) = n.toString().padStart(2, '0')
-    return if (h > 0) "$h:${two(m)}:${two(s)}" else "${two(m)}:${two(s)}"
-}
 
 /**
  * Resumen congelado de la ronda terminada (duración y turnos), con una breve
