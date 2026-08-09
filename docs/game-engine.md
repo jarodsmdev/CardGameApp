@@ -105,6 +105,12 @@ PREPARING → DEALING → PLAYING → ROUND_END → GAME_END
 
 - Cada transición se valida con **guardas** definidas por el juego.
 - Los eventos registran la transición (`STATE_CHANGED {from,to,reason}`).
+- **`ROUND_END` es un estado pausado de resultados** (scoreboard): el juego
+  calcula y congela los resultados de la ronda, y la **siguiente ronda NO se
+  reparte automáticamente**. Solo avanza cuando el jugador continúa desde el
+  scoreboard mediante una acción explícita del juego (en Carioca:
+  `START_NEXT_ROUND`), que reparte la nueva ronda y pasa a `PLAYING`. Mientras
+  `ROUND_END` esté activo no corren bots, timers ni turnos de la siguiente ronda.
 - **`GAME_END` es terminal y siempre libera recursos** (§11). Se alcanza por:
   - fin normal de la última ronda (ganador),
   - **abandono no confirmado** (`SURRENDER` sin confirmación de los demás, §11.2),
@@ -126,7 +132,9 @@ GameAction { type, playerId, targetCardIds[], targetGroupIds[], payload }
 ```
 
 Ejemplos Carioca: `DRAW_FROM_STOCK`, `DRAW_FROM_DISCARD`, `MELD_GROUPS`,
-`MELD_AND_DISCARD`, `DECLARE_ROUND`, `LAY_OFF`, `PASS`.
+`MELD_AND_DISCARD`, `DECLARE_ROUND`, `LAY_OFF`, `PASS`,
+`START_NEXT_ROUND` (avanza de `ROUND_END` a la siguiente ronda; solo válida
+mientras el scoreboard está activo).
 
 **Acción genérica del motor (todos los juegos):**
 
@@ -203,13 +211,18 @@ El motor contabiliza métricas acumulativas en el estado de Carioca
 total:
 
 - **`GameStatsTracker`**: agrega por **ronda** (vueltas, turnos y tiempo
-  empleado) y cierra la ronda al detectar el cambio de ronda o `GAME_END`.
+  empleado). La ronda se **congela al llegar a `ROUND_END`** (o `GAME_END` en la
+  última): duración y turnos quedan fijos aunque el scoreboard siga abierto o
+  lleguen estados repetidos; solo se reinicia la línea base al **repartir** la
+  siguiente ronda ("Continuar").
 - **`GameStats` / `RoundStats` / `CumulativeStats`**: modelo inmutable con
   `operator plus` para acumulación.
 - **`GameStatsStore`** (`SharedPreferences`): persiste **en el dispositivo**
   `gamesPlayed`, `roundsPlayed`, `laps`, `turns` y `totalTimeMillis`, acumulados
   entre partidas.
-- El móvil muestra el resumen en el diálogo final (`GameEndDialog`).
+- El móvil muestra el resumen en el diálogo final (`GameEndDialog`) y el
+  **resumen congelado de la ronda** (duración y turnos) en el scoreboard de
+  `ROUND_END` (`RoundEndDialog`).
 - **Online (Fase 3):** las estadísticas por usuario pasarán a vivirlas en el
   servidor (tabla `stats`, `docs/database.md`), alimentadas por `GameResult`.
 

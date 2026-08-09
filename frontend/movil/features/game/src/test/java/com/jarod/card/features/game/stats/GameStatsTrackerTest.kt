@@ -24,7 +24,7 @@ class GameStatsTrackerTest {
         )
 
     @Test
-    fun `agrega stats por ronda con vueltas, turnos y tiempo`() {
+    fun `agrega stats por ronda con vueltas turnos y tiempo`() {
         var now = 0L
         val tracker = GameStatsTracker(nowMillis = { now })
         tracker.startGame()
@@ -33,14 +33,18 @@ class GameStatsTrackerTest {
         tracker.onState(state(0, CariocaPhase.PLAYING, laps = 0, turns = 0))
         now = 10_000L
         tracker.onState(state(0, CariocaPhase.PLAYING, laps = 2, turns = 8))
-        // Cambio a ronda 2: cierra la 1
+        // Ronda 1 termina: se congela al llegar a ROUND_END
         now = 15_000L
+        tracker.onState(state(0, CariocaPhase.ROUND_END, laps = 2, turns = 8))
+
+        // El jugador lee el scoreboard 5s; recién al continuar empieza la ronda 2
+        now = 20_000L
         tracker.onState(state(1, CariocaPhase.PLAYING, laps = 2, turns = 8))
 
-        now = 20_000L
-        tracker.onState(state(1, CariocaPhase.PLAYING, laps = 5, turns = 16))
-        // Fin de partida: cierra la 2
         now = 25_000L
+        tracker.onState(state(1, CariocaPhase.PLAYING, laps = 5, turns = 16))
+        // Fin de partida: la última ronda va directo a GAME_END y cierra la 2
+        now = 30_000L
         tracker.onState(state(1, CariocaPhase.GAME_END, laps = 5, turns = 16))
 
         val stats = tracker.result()
@@ -71,13 +75,48 @@ class GameStatsTrackerTest {
 
         tracker.onState(state(0, CariocaPhase.PLAYING, laps = 1, turns = 4))
         tracker.onState(state(0, CariocaPhase.PLAYING, laps = 2, turns = 8))
-        tracker.onState(state(0, CariocaPhase.PLAYING, laps = 3, turns = 12))
-        tracker.onState(state(1, CariocaPhase.GAME_END, laps = 3, turns = 12))
+        // ROUND_END repetido: la ronda ya quedó congelada, no se duplica
+        tracker.onState(state(0, CariocaPhase.ROUND_END, laps = 3, turns = 12))
+        tracker.onState(state(0, CariocaPhase.ROUND_END, laps = 3, turns = 12))
+        // Ronda 2 empieza y termina (última)
+        tracker.onState(state(1, CariocaPhase.PLAYING, laps = 3, turns = 12))
+        tracker.onState(state(1, CariocaPhase.GAME_END, laps = 4, turns = 16))
 
         val stats = tracker.result()
         assertEquals(2, stats.rounds.size)
-        assertEquals(3, stats.totalLaps)
-        assertEquals(12, stats.totalTurns)
+        assertEquals(4, stats.totalLaps)
+        assertEquals(16, stats.totalTurns)
+    }
+
+    @Test
+    fun `duracion y turnos se congelan al llegar a ROUND_END`() {
+        var now = 0L
+        val tracker = GameStatsTracker(nowMillis = { now })
+        tracker.startGame()
+
+        now = 0L
+        tracker.onState(state(0, CariocaPhase.PLAYING, laps = 0, turns = 0))
+        now = 10_000L
+        tracker.onState(state(0, CariocaPhase.PLAYING, laps = 2, turns = 8))
+        // Ronda termina: stats congelados en 15s / 8 turnos
+        now = 15_000L
+        tracker.onState(state(0, CariocaPhase.ROUND_END, laps = 2, turns = 8))
+
+        // El scoreboard queda abierto 10s más: la duración no debe crecer
+        now = 25_000L
+        tracker.onState(state(0, CariocaPhase.ROUND_END, laps = 2, turns = 8))
+
+        assertEquals(RoundStats(round = 1, laps = 2, turns = 8, elapsedMillis = 15_000L), tracker.lastFinishedRound())
+        assertEquals(15_000L, tracker.result().rounds[0].elapsedMillis)
+    }
+
+    @Test
+    fun `lastFinishedRound devuelve null si ninguna ronda termino`() {
+        var now = 0L
+        val tracker = GameStatsTracker(nowMillis = { now })
+        tracker.startGame()
+        tracker.onState(state(0, CariocaPhase.PLAYING, laps = 0, turns = 0))
+        assertEquals(null, tracker.lastFinishedRound())
     }
 
     @Test

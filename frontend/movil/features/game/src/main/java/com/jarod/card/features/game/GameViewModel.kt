@@ -26,6 +26,7 @@ import com.jarod.card.features.game.stats.CumulativeStats
 import com.jarod.card.features.game.stats.GameStats
 import com.jarod.card.features.game.stats.GameStatsStore
 import com.jarod.card.features.game.stats.GameStatsTracker
+import com.jarod.card.features.game.stats.RoundStats
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -46,7 +47,9 @@ data class GameUiState(
     val cumulativeStats: CumulativeStats = CumulativeStats(),
     val skin: CardSkin = CardSkin(),
     /** Info de fin de ronda para mostrar diálogo (ganador, puntos, nº ronda). */
-    val roundEndInfo: RoundEndInfo? = null
+    val roundEndInfo: RoundEndInfo? = null,
+    /** Resumen congelado de la ronda terminada (duración y turnos), para el scoreboard. */
+    val roundSummary: RoundStats? = null
 )
 
 data class RoundEndInfo(
@@ -90,6 +93,7 @@ class GameViewModel @Inject constructor(
                 error = null,
                 secondsLeft = -1,
                 gameStats = null,
+                roundSummary = null,
                 cumulativeStats = statsStore.read()
             )
             statsTracker.startGame()
@@ -241,6 +245,11 @@ class GameViewModel @Inject constructor(
     // ──────────────────────────────────────────────────────────────
     private fun trackState(st: CariocaState) {
         statsTracker.onState(st)
+        // Resumen congelado de la ronda que acaba de terminar (duración y turnos).
+        // Solo queda definido durante ROUND_END: en el scoreboard se muestra fijo.
+        _uiState.value = _uiState.value.copy(
+            roundSummary = if (st.phase == CariocaPhase.ROUND_END) statsTracker.lastFinishedRound() else null
+        )
         if (st.phase == CariocaPhase.GAME_END && _uiState.value.gameStats == null) {
             val stats = statsTracker.result()
             val played = CumulativeStats(

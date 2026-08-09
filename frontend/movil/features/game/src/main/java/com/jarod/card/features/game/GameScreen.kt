@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -40,7 +41,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Loop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -81,12 +85,16 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarod.card.core.ui.ConfirmDialog
+import com.jarod.card.core.util.formatClock
+import com.jarod.card.core.util.formatDuration
+import com.jarod.card.core.util.plural
 import com.jarod.card.domain.engine.GameResult
 import com.jarod.card.domain.engine.PlayerId
 import com.jarod.card.domain.engine.PlayerRanking
@@ -101,6 +109,7 @@ import com.jarod.card.domain.games.carioca.Stage
 import com.jarod.card.features.game.cardskin.CardSkin
 import com.jarod.card.features.game.stats.CumulativeStats
 import com.jarod.card.features.game.stats.GameStats
+import com.jarod.card.features.game.stats.RoundStats
 import com.jarod.card.features.game.GameViewModel
 import com.jarod.card.features.game.RoundEndInfo
 import kotlin.math.abs
@@ -308,14 +317,18 @@ fun GameScreen(
         )
     }
 
-    // Diálogo de fin de ronda
-    ui.roundEndInfo?.let { info ->
-        RoundEndDialog(
-            info = info,
-            st = st!!,
-            humanId = ui.humanId,
-            onContinue = { viewModel.clearRoundEnd() }
-        )
+    // Diálogo de fin de ronda: solo cuando hay una ronda siguiente (la última
+    // ronda conduce directamente a GameEndDialog, sin "Continuar").
+    if (st?.phase == CariocaPhase.ROUND_END) {
+        ui.roundEndInfo?.let { info ->
+            RoundEndDialog(
+                info = info,
+                st = st,
+                humanId = ui.humanId,
+                roundSummary = ui.roundSummary,
+                onContinue = { viewModel.clearRoundEnd() }
+            )
+        }
     }
 
     if (showExitDialog) {
@@ -899,6 +912,7 @@ private fun RoundEndDialog(
     info: RoundEndInfo,
     st: CariocaState,
     humanId: PlayerId?,
+    roundSummary: RoundStats?,
     onContinue: () -> Unit
 ) {
     // Construir entries del scoreboard con scores actuales
@@ -921,7 +935,8 @@ private fun RoundEndDialog(
             totalScore = r.score,
             roundsWon = r.roundsWon,
             isCurrentPlayer = isMe,
-            perRoundScores = emptyList() // TODO: tracking por ronda
+            perRoundScores = emptyList(), // TODO: tracking por ronda
+            meldsText = describeMelds(st.table[r.playerId].orEmpty())
         )
     }
 
@@ -933,22 +948,40 @@ private fun RoundEndDialog(
                 // Ganador de la ronda
                 val winnerName = nameOf(info.winner, humanId)
                 val pointsGained = info.pointsGained[info.winner] ?: 0
-                Text(
-                    text = "🏆 $winnerName gana la ronda (${pointsGained} pts)",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MedalGold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.EmojiEvents,
+                        contentDescription = null,
+                        tint = MedalGold,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "$winnerName gana la ronda (${pointsGained} pts)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MedalGold,
+                        textAlign = TextAlign.Center
+                    )
+                }
 
-                // Scoreboard compacto
+                // Resumen congelado de la ronda (duración y turnos)
+                roundSummary?.let { summary ->
+                    RoundSummaryHeader(summary = summary)
+                }
+
+                // Scoreboard compacto (sin "Jugar de nuevo": esa acción solo
+                // corresponde al final de la partida, en GameEndDialog)
                 Scoreboard(
                     entries = entries,
                     roundCount = st.ruleset.rounds.size,
                     gameStats = null,
                     cumulativeStats = null,
-                    onDismiss = onContinue
+                    onDismiss = null
                 )
             }
         },
@@ -958,13 +991,96 @@ private fun RoundEndDialog(
     )
 }
 
-private fun plural(n: Int, singular: String): String = "$n $singular${if (n == 1) "" else "s"}"
+/**
+ * Resumen congelado de la ronda terminada (duración y turnos), con una breve
+ * animación de entrada. Los valores vienen de RoundStats ya cerrado en
+ * ROUND_END, así que no cambian mientras el scoreboard esté abierto.
+ */
+@Composable
+private fun RoundSummaryHeader(summary: RoundStats) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { visible = true }
+    val animAlpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(durationMillis = 350),
+        label = "roundSummaryAlpha"
+    )
+    val animScale by animateFloatAsState(
+        targetValue = if (visible) 1f else 0.85f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        label = "roundSummaryScale"
+    )
 
-private fun formatDuration(ms: Long): String {
-    val totalSec = ms / 1000
-    val min = totalSec / 60
-    val sec = totalSec % 60
-    return if (min > 0) "${min}m ${sec}s" else "${sec}s"
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                alpha = animAlpha
+                scaleX = animScale
+                scaleY = animScale
+            }
+            .padding(bottom = 16.dp)
+    ) {
+        Text(
+            text = "RONDA TERMINADA",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+        )
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(modifier = Modifier.padding(vertical = 12.dp)) {
+                SummaryStat(
+                    icon = Icons.Filled.AccessTime,
+                    contentDescription = "Duración",
+                    label = "Duración",
+                    value = formatClock(summary.elapsedMillis)
+                )
+                SummaryStat(
+                    icon = Icons.Filled.Loop,
+                    contentDescription = "Turnos",
+                    label = "Turnos",
+                    value = summary.turns.toString()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.SummaryStat(
+    icon: ImageVector,
+    contentDescription: String,
+    label: String,
+    value: String
+) {
+    Column(
+        modifier = Modifier.weight(1f),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -981,7 +1097,20 @@ data class ScoreboardEntry(
     val isCurrentPlayer: Boolean = false,
     /** Puntos por ronda (índice = número de ronda - 1). */
     val perRoundScores: List<Int> = emptyList(),
+    /** Lo que el jugador bajó en la ronda (ej. "2 tríos · 1 escala"). Null si no hay info. */
+    val meldsText: String? = null,
 )
+
+/** Descripción compacta de las combinaciones bajadas en la ronda (ej. "2 tríos · 1 escala"). */
+private fun describeMelds(melds: List<Meld>): String? {
+    if (melds.isEmpty()) return null
+    val trios = melds.count { it is Meld.Triple }
+    val runs = melds.count { it is Meld.Run }
+    return buildList {
+        if (trios > 0) add(plural(trios, "trío"))
+        if (runs > 0) add(plural(runs, "escala"))
+    }.joinToString(" · ")
+}
 
 // Helper: fila de scores por ronda dentro del desglose
 @Composable
@@ -1077,6 +1206,13 @@ fun Scoreboard(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            entry.meldsText?.let { melds ->
+                                Text(
+                                    text = "Bajó: $melds",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                         // Total score
                         Column(horizontalAlignment = Alignment.End) {
