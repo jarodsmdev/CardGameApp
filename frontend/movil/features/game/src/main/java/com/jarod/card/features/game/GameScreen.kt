@@ -15,7 +15,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -36,6 +35,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -46,7 +46,6 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Loop
 import androidx.compose.material.icons.filled.TrackChanges
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -67,10 +66,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
@@ -80,14 +81,16 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -99,7 +102,6 @@ import com.jarod.card.core.ui.ConfirmDialog
 import com.jarod.card.core.util.formatClock
 import com.jarod.card.core.util.formatDuration
 import com.jarod.card.core.util.plural
-import com.jarod.card.domain.engine.GameResult
 import com.jarod.card.domain.engine.PlayerId
 import com.jarod.card.domain.engine.PlayerRanking
 import com.jarod.card.domain.games.carioca.CariocaBot
@@ -114,11 +116,9 @@ import com.jarod.card.features.game.cardskin.CardSkin
 import com.jarod.card.features.game.stats.CumulativeStats
 import com.jarod.card.features.game.stats.GameStats
 import com.jarod.card.features.game.stats.RoundStats
-import com.jarod.card.features.game.GameViewModel
-import com.jarod.card.features.game.RoundEndInfo
+import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.roundToInt
-import kotlinx.coroutines.delay
 
 private val DiscardBadgeRed = Color(0xFFC62828)
 private val PlayedCheckGreen = Color(0xFF2E7D32)
@@ -548,12 +548,26 @@ private fun TableSection(st: CariocaState, humanId: PlayerId, skin: CardSkin) {
                 modifier = Modifier.padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = nameOf(owner, humanId),
-                    modifier = Modifier.graphicsLayer { rotationZ = -90f },
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold
-                )
+                // Nombre en vertical dentro de un hueco cuadrado del alto de línea:
+                // con la rotación alrededor del centro, las letras quedan pegadas al
+                // borde izquierdo y el espaciado hacia las cartas se fija con un
+                // Spacer, idéntico para todos los jugadores (antes un hueco ancho
+                // dejaba demasiado margen al borde de la pantalla).
+                Box(
+                    modifier = Modifier.size(20.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = nameOf(owner, humanId),
+                        modifier = Modifier
+                            .wrapContentSize(unbounded = true)
+                            .graphicsLayer { rotationZ = -90f },
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
                 Row(Modifier.horizontalScroll(rememberScrollState())) {
                     melds.forEach { meld ->
                         MeldRow(meld, skin)
@@ -727,7 +741,8 @@ private fun HandRow(
         val shadowPx = with(density) { 16.dp.toPx() }
         val arcRaisePx = with(density) { 6.dp.toPx() }
         val maxArcRotation = 4f
-        val maxWidthPx = with(density) { maxWidth.toPx() }
+        val availableWidth = maxWidth
+        val maxWidthPx = with(density) { availableWidth.toPx() }
         val n = order.size
 
         // La mano completa siempre cabe: el paso de superposición se calcula para que
@@ -887,6 +902,7 @@ private fun GameEndDialog(
             name = nameOf(r.playerId, humanId),
             totalScore = r.score,
             roundsWon = r.roundsWon,
+            totalRounds = st.ruleset.rounds.size,
             isCurrentPlayer = isMe,
             isRoundWinner = r.rank == 1
         )
@@ -937,6 +953,7 @@ private fun RoundEndDialog(
             name = nameOf(r.playerId, humanId),
             totalScore = r.score,
             roundsWon = r.roundsWon,
+            totalRounds = info.round,
             isCurrentPlayer = isMe,
             roundPoints = info.pointsGained[r.playerId] ?: 0,
             isRoundWinner = r.playerId == info.winner
@@ -1013,6 +1030,7 @@ private fun ScoreboardDialog(
     actions: @Composable () -> Unit = {},
     content: @Composable () -> Unit
 ) {
+    val maxHeight = LocalConfiguration.current.screenHeightDp.dp * 0.92f
     Dialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -1020,7 +1038,8 @@ private fun ScoreboardDialog(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 8.dp)
+                .heightIn(max = maxHeight),
             shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp
@@ -1033,7 +1052,13 @@ private fun ScoreboardDialog(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
                 )
-                content()
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    content()
+                }
                 actions()
             }
         }
@@ -1167,6 +1192,8 @@ data class ScoreboardEntry(
     val name: String,
     val totalScore: Int,
     val roundsWon: Int,
+    /** Rondas jugadas hasta ahora: el denominador del contador "X/Y rondas ganadas". */
+    val totalRounds: Int,
     val isCurrentPlayer: Boolean = false,
     /** Puntos obtenidos en la ronda que acaba de terminar. Null si no aplica. */
     val roundPoints: Int? = null,
@@ -1229,11 +1256,27 @@ private fun ScoreboardPlayerCard(
             .graphicsLayer {
                 alpha = revealProgress
                 translationY = (1f - revealProgress) * 24f.dp.toPx()
-            },
+            }
+            .then(
+                if (entry.isRoundWinner) Modifier.drawWithContent {
+                    drawContent()
+                    // Efecto inset: segunda línea dorada desplazada 2dp hacia
+                    // abajo-derecha, que da sensación de profundidad/sombra sin
+                    // el blur gris de la elevación de la Card.
+                    val d = 2.dp.toPx()
+                    drawRoundRect(
+                        color = MedalGold.copy(alpha = 0.28f),
+                        topLeft = Offset(d, d),
+                        size = Size(size.width - d * 2, size.height - d * 2),
+                        cornerRadius = CornerRadius(13.dp.toPx(), 13.dp.toPx()),
+                        style = Stroke(width = 1.dp.toPx())
+                    )
+                } else Modifier
+            ),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = containerColor),
         border = if (entry.isRoundWinner) BorderStroke(1.dp, MedalGold.copy(alpha = borderAlpha)) else null,
-        elevation = CardDefaults.cardElevation(defaultElevation = if (entry.isRoundWinner) 6.dp else 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(Modifier.padding(12.dp)) {
             // Cabecera: medalla + nombre + chip de ganador
@@ -1261,11 +1304,7 @@ private fun ScoreboardPlayerCard(
                             WinnerChip()
                         }
                     }
-                    Text(
-                        text = "${entry.roundsWon} ${plural(entry.roundsWon, "ronda")} ganadas",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    RoundsWonStat(roundsWon = entry.roundsWon, totalRounds = entry.totalRounds)
                 }
             }
             HorizontalDivider(Modifier.padding(vertical = 10.dp))
@@ -1340,6 +1379,25 @@ private fun AnimatedScore(
     )
 }
 
+/** Contador de rondas ganadas en lenguaje natural: "Ganó 2 de 7 rondas". */
+@Composable
+private fun RoundsWonStat(roundsWon: Int, totalRounds: Int) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = Icons.Filled.EmojiEvents,
+            contentDescription = "Rondas ganadas",
+            tint = MedalGold,
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(Modifier.width(5.dp))
+        Text(
+            text = "Ganó $roundsWon de $totalRounds ${if (totalRounds == 1) "ronda" else "rondas"}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
 /** Chip dorado "Ganador" con trofeo. */
 @Composable
 private fun WinnerChip() {
@@ -1381,7 +1439,6 @@ fun Scoreboard(
 ) {
     Column(modifier = modifier
         .fillMaxWidth()
-        .verticalScroll(rememberScrollState())
         .padding(horizontal = 4.dp, vertical = 8.dp)
     ) {
         // ─── Cabecera: cards de jugadores (medalla + nombre + puntajes) ───
