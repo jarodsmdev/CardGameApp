@@ -39,6 +39,17 @@ object MeldValidator {
     }
 
     /**
+     * Forma canónica de un grupo ya validado, para almacenarlo en la mesa:
+     * solo las ESCALAS se reordenan secuencialmente (jokers en su posición
+     * lógica). Los tríos se devuelven tal cual los envió el jugador, porque el
+     * orden no tiene sentido en un trío.
+     */
+    fun canonicalize(cards: List<Card>, rules: CariocaRuleset): Meld? {
+        validateRun(cards, rules)?.let { return it }
+        return validateTriple(cards)
+    }
+
+    /**
      * Escala: 4+ cartas consecutivas de la misma pinta (o 13 con el giro del
      * ciclo A→1→…→K→A). Los jokers rellenan un rango faltante.
      * Devuelve la Run con cartas ordenadas secuencialmente (jokers en su posición).
@@ -71,7 +82,7 @@ object MeldValidator {
                     else {
                         // Usar un joker para esta posición
                         require(jokerCards.isNotEmpty()) { "Falta joker para posición $idx" }
-                        jokerCards.removeFirst()
+                        jokerCards.removeAt(0)
                     }
                 }.toList()
                 return Meld.Run(ordered)

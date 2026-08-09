@@ -243,9 +243,9 @@ object CariocaGame : Game<CariocaState> {
         val usedIds = a.groups.flatMap { it.cards.map { it.id } }.toSet()
         val newHand = hand.filter { it.id !in usedIds }
         val newHands = state.hands + (p to newHand)
-        // Almacenar combinaciones canónicas (revalidadas) para que las escalas
-        // queden ordenadas secuencialmente con los jokers en su posición.
-        val canonicalGroups = a.groups.map { MeldValidator.validate(it.cards, state.ruleset)!! }
+        // Almacenar combinaciones canónicas (revalidadas): solo las escalas se
+        // reordenan; los tríos quedan como los envió el jugador.
+        val canonicalGroups = a.groups.map { MeldValidator.canonicalize(it.cards, state.ruleset)!! }
         val newTable = state.table + (p to (state.table[p]!! + canonicalGroups))
         val newMelded = state.meldedThisRound + p
         val groupIds = a.groups.map { it.cardIds() }
@@ -340,7 +340,7 @@ object CariocaGame : Game<CariocaState> {
         val newHands = state.hands + (p to newHand)
         val ownerMelds = state.table[a.meldOwner]!!.toMutableList()
         val oldMeld = ownerMelds[a.meldIndex]
-        val newMeld = MeldValidator.validate(oldMeld.cards + card, state.ruleset)!!
+        val newMeld = MeldValidator.canonicalize(oldMeld.cards + card, state.ruleset)!!
         ownerMelds[a.meldIndex] = newMeld
         val newTable = state.table + (a.meldOwner to ownerMelds)
         val events = listOf(CardLaidOff(state.seq + 1, p, a.cardId, a.meldOwner, a.meldIndex))

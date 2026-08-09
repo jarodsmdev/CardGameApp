@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Loop
+import androidx.compose.material.icons.filled.TrackChanges
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -83,11 +84,14 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -326,7 +330,8 @@ fun GameScreen(
                 st = st,
                 humanId = ui.humanId,
                 roundSummary = ui.roundSummary,
-                onContinue = { viewModel.clearRoundEnd() }
+                onContinue = { viewModel.clearRoundEnd() },
+                onExit = { showExitDialog = true }
             )
         }
     }
@@ -883,24 +888,21 @@ private fun GameEndDialog(
             totalScore = r.score,
             roundsWon = r.roundsWon,
             isCurrentPlayer = isMe,
-            perRoundScores = emptyList() // TODO: necesitaría tracking por ronda
+            isRoundWinner = r.rank == 1
         )
     }
 
-    AlertDialog(
-        onDismissRequest = {},
-        title = { Text("Fin de la partida") },
-        text = {
-            Scoreboard(
-                entries = entries,
-                roundCount = st.ruleset.rounds.size,
-                gameStats = gameStats,
-                cumulativeStats = cumulativeStats,
-                onDismiss = onRestart
-            )
-        },
-        confirmButton = { } // Scoreboard ya tiene botón
-    )
+    ScoreboardDialog(
+        title = "Fin de la partida",
+        onDismissRequest = {}
+    ) {
+        Scoreboard(
+            entries = entries,
+            gameStats = gameStats,
+            cumulativeStats = cumulativeStats,
+            onDismiss = onRestart
+        )
+    }
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -913,7 +915,8 @@ private fun RoundEndDialog(
     st: CariocaState,
     humanId: PlayerId?,
     roundSummary: RoundStats?,
-    onContinue: () -> Unit
+    onContinue: () -> Unit,
+    onExit: () -> Unit
 ) {
     // Construir entries del scoreboard con scores actuales
     val rankings = st.players
@@ -935,60 +938,106 @@ private fun RoundEndDialog(
             totalScore = r.score,
             roundsWon = r.roundsWon,
             isCurrentPlayer = isMe,
-            perRoundScores = emptyList(), // TODO: tracking por ronda
-            meldsText = describeMelds(st.table[r.playerId].orEmpty())
+            roundPoints = info.pointsGained[r.playerId] ?: 0,
+            isRoundWinner = r.playerId == info.winner
         )
     }
 
-    AlertDialog(
+    ScoreboardDialog(
+        title = "Fin de la ronda ${info.round}",
         onDismissRequest = {},
-        title = { Text("Fin de la ronda ${info.round}") },
-        text = {
-            Column(modifier = Modifier.padding(16.dp)) {
-                // Ganador de la ronda
-                val winnerName = nameOf(info.winner, humanId)
-                val pointsGained = info.pointsGained[info.winner] ?: 0
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.EmojiEvents,
-                        contentDescription = null,
-                        tint = MedalGold,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "$winnerName gana la ronda (${pointsGained} pts)",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MedalGold,
-                        textAlign = TextAlign.Center
-                    )
-                }
-
-                // Resumen congelado de la ronda (duración y turnos)
-                roundSummary?.let { summary ->
-                    RoundSummaryHeader(summary = summary)
-                }
-
-                // Scoreboard compacto (sin "Jugar de nuevo": esa acción solo
-                // corresponde al final de la partida, en GameEndDialog)
-                Scoreboard(
-                    entries = entries,
-                    roundCount = st.ruleset.rounds.size,
-                    gameStats = null,
-                    cumulativeStats = null,
-                    onDismiss = null
+        actions = {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onExit) { Text("Salir de la partida") }
+                Spacer(Modifier.weight(1f))
+                Button(onClick = onContinue) { Text("Continuar") }
+            }
+        }
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+            // Ganador de la ronda
+            val winnerName = nameOf(info.winner, humanId)
+            val pointsGained = info.pointsGained[info.winner] ?: 0
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.EmojiEvents,
+                    contentDescription = null,
+                    tint = MedalGold,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "$winnerName gana la ronda (${pointsGained} pts)",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MedalGold,
+                    textAlign = TextAlign.Center
                 )
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onContinue) { Text("Continuar") }
+
+            // Objetivo de la ronda (lo que todos debían bajar, ej. "2 tríos")
+            val round = st.ruleset.rounds[st.roundIndex]
+            RoundObjectiveRow(objective = describeRoundObjective(round))
+
+            // Resumen congelado de la ronda (duración y turnos)
+            roundSummary?.let { summary ->
+                RoundSummaryHeader(summary = summary)
+            }
+
+            // Scoreboard compacto (sin "Jugar de nuevo": esa acción solo
+            // corresponde al final de la partida, en GameEndDialog)
+            Scoreboard(
+                entries = entries,
+                gameStats = null,
+                cumulativeStats = null,
+                onDismiss = null
+            )
         }
-    )
+    }
+}
+
+/** Diálogo a ancho casi completo para el scoreboard: aprovecha la pantalla
+ *  para que las cards de jugadores se vean grandes, sin los márgenes anchos
+ *  que deja un AlertDialog por defecto. */
+@Composable
+private fun ScoreboardDialog(
+    title: String,
+    onDismissRequest: () -> Unit,
+    actions: @Composable () -> Unit = {},
+    content: @Composable () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismissRequest,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp
+        ) {
+            Column(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                content()
+                actions()
+            }
+        }
+    }
 }
 
 /**
@@ -1083,6 +1132,30 @@ private fun RowScope.SummaryStat(
     }
 }
 
+/** Fila del objetivo de la ronda (lo que todos debían bajar, ej. "2 tríos"). */
+@Composable
+private fun RoundObjectiveRow(objective: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Filled.TrackChanges,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = "Objetivo de la ronda: $objective",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
 // ──────────────────────────────────────────────────────────────
 // Scoreboard genérico (reutilizable en cualquier juego)
 // ──────────────────────────────────────────────────────────────
@@ -1095,181 +1168,236 @@ data class ScoreboardEntry(
     val totalScore: Int,
     val roundsWon: Int,
     val isCurrentPlayer: Boolean = false,
-    /** Puntos por ronda (índice = número de ronda - 1). */
-    val perRoundScores: List<Int> = emptyList(),
-    /** Lo que el jugador bajó en la ronda (ej. "2 tríos · 1 escala"). Null si no hay info. */
-    val meldsText: String? = null,
+    /** Puntos obtenidos en la ronda que acaba de terminar. Null si no aplica. */
+    val roundPoints: Int? = null,
+    /** Si este jugador es el ganador de la ronda (o campeón al final de la partida). */
+    val isRoundWinner: Boolean = false,
 )
 
-/** Descripción compacta de las combinaciones bajadas en la ronda (ej. "2 tríos · 1 escala"). */
-private fun describeMelds(melds: List<Meld>): String? {
-    if (melds.isEmpty()) return null
-    val trios = melds.count { it is Meld.Triple }
-    val runs = melds.count { it is Meld.Run }
-    return buildList {
-        if (trios > 0) add(plural(trios, "trío"))
-        if (runs > 0) add(plural(runs, "escala"))
-    }.joinToString(" · ")
+/** Descripción del objetivo de la ronda (lo que todos deben bajar, ej. "2 tríos"). */
+private fun describeRoundObjective(round: CariocaRound): String =
+    round.combos.joinToString(" · ") { spec ->
+        when (spec.type) {
+            ComboType.TRIPLE -> plural(spec.count, "trío")
+            ComboType.RUN -> if (spec.exactLength == 13) {
+                plural(spec.count, "escala real")
+            } else {
+                plural(spec.count, "escala")
+            }
+        }
+    }
+
+/**
+ * Card de un jugador en el scoreboard: medalla + nombre en la cabecera y,
+ * debajo, dos columnas etiquetadas — "Esta ronda" y "Puntaje total" — para que
+ * ambos conceptos se diferencien de un vistazo. El ganador destaca con borde
+ * dorado, fondo tenue y chip de trofeo.
+ */
+@Composable
+private fun ScoreboardPlayerCard(
+    entry: ScoreboardEntry,
+    revealProgress: Float
+) {
+    val medalColor = when (entry.rank) {
+        1 -> MedalGold
+        2 -> MedalSilver
+        3 -> MedalBronze
+        else -> MedalFourth
+    }
+    val containerColor = when {
+        entry.isRoundWinner -> MedalGold.copy(alpha = 0.12f)
+        entry.isCurrentPlayer -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+        else -> MaterialTheme.colorScheme.surface
+    }
+
+    // Pulso del borde dorado del ganador (va de tenue a intenso y vuelve)
+    val pulse = rememberInfiniteTransition(label = "winnerPulse")
+    val borderAlpha by pulse.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "winnerBorderAlpha"
+    )
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 10.dp)
+            .graphicsLayer {
+                alpha = revealProgress
+                translationY = (1f - revealProgress) * 24f.dp.toPx()
+            },
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        border = if (entry.isRoundWinner) BorderStroke(1.dp, MedalGold.copy(alpha = borderAlpha)) else null,
+        elevation = CardDefaults.cardElevation(defaultElevation = if (entry.isRoundWinner) 6.dp else 2.dp)
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            // Cabecera: medalla + nombre + chip de ganador
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RankMedal(entry.rank)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = entry.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (entry.isCurrentPlayer) {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "(Tú)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        if (entry.isRoundWinner) {
+                            Spacer(Modifier.width(6.dp))
+                            WinnerChip()
+                        }
+                    }
+                    Text(
+                        text = "${entry.roundsWon} ${plural(entry.roundsWon, "ronda")} ganadas",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            HorizontalDivider(Modifier.padding(vertical = 10.dp))
+            // Puntajes etiquetados: esta ronda (principal) vs total
+            Row {
+                if (entry.roundPoints != null) {
+                    ScoreStatColumn(
+                        label = "Esta ronda",
+                        value = entry.roundPoints,
+                        valueColor = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    ScoreStatColumn(
+                        label = "Puntaje total",
+                        value = entry.totalScore,
+                        valueColor = medalColor,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    ScoreStatColumn(
+                        label = "Puntaje total",
+                        value = entry.totalScore,
+                        valueColor = medalColor,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+    }
 }
 
-// Helper: fila de scores por ronda dentro del desglose
 @Composable
-private fun ScoreRow(scores: List<Int?>, totalScore: Int) {
-    Row {
-        scores.forEach { score ->
-            Text(
-                text = score?.toString() ?: "—",
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-                color = if (score != null && score > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f)
-            )
-        }
+private fun RowScope.ScoreStatColumn(
+    label: String,
+    value: Int,
+    valueColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            text = totalScore.toString(),
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.End,
-            modifier = Modifier.weight(1f)
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        AnimatedScore(
+            value = value,
+            style = MaterialTheme.typography.headlineSmall,
+            color = valueColor
+        )
+    }
+}
+
+/** Valor con conteo animado (queda fijo al terminar la animación). */
+@Composable
+private fun AnimatedScore(
+    value: Int,
+    style: TextStyle,
+    color: Color
+) {
+    val animated = remember { Animatable(0f) }
+    LaunchedEffect(value) {
+        animated.animateTo(
+            targetValue = value.toFloat(),
+            animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
+        )
+    }
+    Text(
+        text = "${animated.value.roundToInt()} pts",
+        style = style,
+        fontWeight = FontWeight.Bold,
+        color = color
+    )
+}
+
+/** Chip dorado "Ganador" con trofeo. */
+@Composable
+private fun WinnerChip() {
+    Row(
+        modifier = Modifier
+            .background(MedalGold.copy(alpha = 0.15f), CircleShape)
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Filled.EmojiEvents,
+            contentDescription = "Ganador",
+            tint = MedalGold,
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = "Ganador",
+            style = MaterialTheme.typography.labelSmall,
+            color = MedalGold,
+            fontWeight = FontWeight.Bold
         )
     }
 }
 
 /**
- * Scoreboard genérico: tabla de posiciones con medalla, desglose por ronda,
- * stats de la partida y stats acumuladas.
+ * Scoreboard genérico: tabla de posiciones con medalla, stats de la partida
+ * y stats acumuladas.
  *
  * Uso típico: fin de partida (GAME_END), lobby de resultados, perfil de jugador.
  */
 @Composable
 fun Scoreboard(
     entries: List<ScoreboardEntry>,
-    roundCount: Int,
     gameStats: GameStats? = null,
     cumulativeStats: CumulativeStats? = null,
     modifier: Modifier = Modifier,
     onDismiss: (() -> Unit)? = null,
 ) {
-    val maxRounds = maxOf(roundCount, entries.flatMap { it.perRoundScores }.size)
     Column(modifier = modifier
         .fillMaxWidth()
         .verticalScroll(rememberScrollState())
-        .padding(16.dp)
+        .padding(horizontal = 4.dp, vertical = 8.dp)
     ) {
-        // ─── Cabecera: medalla + nombre + total ───
+        // ─── Cabecera: cards de jugadores (medalla + nombre + puntajes) ───
         Column {
-            entries.forEach { entry ->
-                val medalColor = when (entry.rank) {
-                    1 -> MedalGold
-                    2 -> MedalSilver
-                    3 -> MedalBronze
-                    else -> MedalFourth
+            entries.forEachIndexed { index, entry ->
+                var revealed by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    delay(index * 90L)
+                    revealed = true
                 }
-                val bgColor = if (entry.isCurrentPlayer)
-                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                else MaterialTheme.colorScheme.surface
-
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp),
-                    colors = CardDefaults.cardColors(containerColor = bgColor),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Medalla
-                        RankMedal(entry.rank)
-                        Spacer(Modifier.width(12.dp))
-                        // Nombre + indicador "Tú"
-                        Column(Modifier.weight(1f)) {
-                            Row {
-                                Text(
-                                    text = entry.name,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                if (entry.isCurrentPlayer) {
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(
-                                        text = "(Tú)",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                            Text(
-                                text = "${entry.roundsWon} ${plural(entry.roundsWon, "ronda")} ganadas",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            entry.meldsText?.let { melds ->
-                                Text(
-                                    text = "Bajó: $melds",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
-                        // Total score
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = "${entry.totalScore} pts",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = medalColor
-                            )
-                            if (entry.roundsWon > 0) {
-                                Text(
-                                    text = "Ganador",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MedalGold,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // ─── Desglose por ronda (expandible) ───
-        if (maxRounds > 0 && entries.any { it.perRoundScores.isNotEmpty() }) {
-            HorizontalDivider(Modifier.padding(vertical = 12.dp))
-            Text(
-                text = "Desglose por ronda",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.height(8.dp))
-            Column {
-                // Encabezado de columnas
-                Row(Modifier.fillMaxWidth()) {
-                    Text("Jugador", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1.5f))
-                    for (r in 1..maxRounds) {
-                        Text("R$r", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
-                    }
-                    Text("Total", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
-                }
-                HorizontalDivider()
-                entries.forEach { entry ->
-                    val roundScores = (1..maxRounds).map { r -> entry.perRoundScores.getOrNull(r - 1) }
-                    Row(Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp)
-                        .background(
-                            if (entry.isCurrentPlayer)
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
-                            else Color.Transparent
-                        )
-                    ) {
-                        Text(entry.name, style = MaterialTheme.typography.bodyMedium, fontWeight = if (entry.isCurrentPlayer) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.weight(1.5f).padding(end = 8.dp))
-                        ScoreRow(scores = roundScores, totalScore = entry.totalScore)
-                    }
-                }
+                val revealProgress by animateFloatAsState(
+                    targetValue = if (revealed) 1f else 0f,
+                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                    label = "cardReveal$index"
+                )
+                ScoreboardPlayerCard(entry = entry, revealProgress = revealProgress)
             }
         }
 
