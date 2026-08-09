@@ -308,14 +308,17 @@ fun GameScreen(
         )
     }
 
-    // Diálogo de fin de ronda
-    ui.roundEndInfo?.let { info ->
-        RoundEndDialog(
-            info = info,
-            st = st!!,
-            humanId = ui.humanId,
-            onContinue = { viewModel.clearRoundEnd() }
-        )
+    // Diálogo de fin de ronda: solo cuando hay una ronda siguiente (la última
+    // ronda conduce directamente a GameEndDialog, sin "Continuar").
+    if (st?.phase == CariocaPhase.ROUND_END) {
+        ui.roundEndInfo?.let { info ->
+            RoundEndDialog(
+                info = info,
+                st = st,
+                humanId = ui.humanId,
+                onContinue = { viewModel.clearRoundEnd() }
+            )
+        }
     }
 
     if (showExitDialog) {
@@ -942,13 +945,14 @@ private fun RoundEndDialog(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
                 )
 
-                // Scoreboard compacto
+                // Scoreboard compacto (sin "Jugar de nuevo": esa acción solo
+                // corresponde al final de la partida, en GameEndDialog)
                 Scoreboard(
                     entries = entries,
                     roundCount = st.ruleset.rounds.size,
                     gameStats = null,
                     cumulativeStats = null,
-                    onDismiss = onContinue
+                    onDismiss = null
                 )
             }
         },

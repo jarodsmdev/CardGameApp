@@ -66,6 +66,10 @@
 - Se permiten **2 escalas de la misma pinta**.
 - **Giro (vuelta):** permitido en escalas, p. ej. `2 – A – K – Q` (el As puede
   estar "al medio").
+- **Orden de representación:** una escala siempre se almacena y se muestra en
+  **orden secuencial** dentro del ciclo de valores, aunque sus cartas se hayan
+  agregado en otro orden (p. ej. mediante lay-off). El joker se coloca en la
+  **posición lógica** de la carta que reemplaza: `4-5-Joker-7` = `4-5-[6]-7`.
 - **Reglas de construcción:**
   - No se valen **juegos duplicados** (p. ej. dos tríos de la misma figura).
   - No se permite **sacar cartas bajas del contrincante**.
@@ -137,7 +141,8 @@ comodines** en la base; solo actúan como comodines si se activa la **variante
 ### Restricciones adicionales
 
 1. En un mismo turno, el jugador puede deshacerse de tantas cartas como sea posible mediante lay-off, incluso quedarse sin cartas en la mano.
-2. Según la ronda, solo se puede bajar lo que esta exige:
+2. Al hacer lay-off en una **escala**, las cartas nuevas se **insertan en su posición secuencial** (no se agregan al final) y los jokers ya presentes **conservan la posición de la carta que reemplazan**: agregando `3` y `8` a `4-5-Joker-7` → `3-4-5-Joker-7-8`.
+3. Según la ronda, solo se puede bajar lo que esta exige:
 
   - Si la ronda es solo de **tríos**, no se pueden bajar escalas.
   - Si la ronda es solo de **escalas**, no se pueden bajar tríos.
@@ -212,6 +217,10 @@ ronda, más cartas y más complejidad.**
 - **Fin de la partida:** tras jugarse **todas las rondas configuradas** se suman
   los puntajes. Gana quien tiene **menos puntos**.
 - **Empate:** queda mejor posicionado quien haya **ganado más rondas**.
+- **Entre rondas:** al terminar una ronda el juego queda **pausado** mostrando el
+  scoreboard con los resultados; la siguiente ronda **no se reparte ni avanza**
+  hasta que el jugador la confirma ("Continuar"). En la última ronda, el
+  scoreboard conduce a **finalizar la partida** y ver el resultado final.
 
 ## 11. Abandono de ronda y timeout
 
