@@ -428,30 +428,39 @@ private fun TopInfo(
             )
             Text(text = "Sala $roomId", style = MaterialTheme.typography.bodySmall)
         }
-        when {
-            botsThinking -> Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(6.dp))
-                Text("Jugando…", style = MaterialTheme.typography.bodySmall)
-            }
-            myTurn -> Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "Tu turno",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                if (secondsLeft >= 0) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Vuelta ${st.laps + 1}",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.width(12.dp))
+            when {
+                botsThinking -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(6.dp))
+                    Text("Jugando…", style = MaterialTheme.typography.bodySmall)
+                }
+                myTurn -> Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "· ${secondsLeft}s",
+                        text = "Tu turno",
                         style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if (secondsLeft <= st.ruleset.turnTimeout.warningAtSeconds) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        }
+                        fontWeight = FontWeight.Bold
                     )
+                    if (secondsLeft >= 0) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "· ${secondsLeft}s",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (secondsLeft <= st.ruleset.turnTimeout.warningAtSeconds) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -1116,9 +1125,9 @@ private fun RoundSummaryHeader(summary: RoundStats) {
                 )
                 SummaryStat(
                     icon = Icons.Filled.Loop,
-                    contentDescription = "Turnos",
-                    label = "Turnos",
-                    value = summary.turns.toString()
+                    contentDescription = "Vueltas",
+                    label = "Vueltas",
+                    value = summary.laps.toString()
                 )
             }
         }
