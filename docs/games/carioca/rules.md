@@ -142,7 +142,8 @@ comodines** en la base; solo actúan como comodines si se activa la **variante
 
 1. En un mismo turno, el jugador puede deshacerse de tantas cartas como sea posible mediante lay-off, incluso quedarse sin cartas en la mano.
 2. Al hacer lay-off en una **escala**, las cartas nuevas se **insertan en su posición secuencial** (no se agregan al final) y los jokers ya presentes **conservan la posición de la carta que reemplazan**: agregando `3` y `8` a `4-5-Joker-7` → `3-4-5-Joker-7-8`.
-3. Según la ronda, solo se puede bajar lo que esta exige:
+3. **Conflicto con jokers en escalas**: cuando una escala ya tiene un joker, este tiene una **posición fija** (la carta que reemplaza). Un lay-off **no puede** colocar la carta natural que "choca" con esa posición, porque obligaría al joker a cambiar de sitio. Ejemplo: en `2♥-3♥-4♥-?` el `?` representa el `5♥`; añadir `6♥` es válido (`2-3-4-5-6`), pero añadir `5♥` no lo es (el comodín ya ocupa el 5). El motor rechaza el lay-off que fuerce un cambio de posición del joker.
+4. Según la ronda, solo se puede bajar lo que esta exige:
 
   - Si la ronda es solo de **tríos**, no se pueden bajar escalas.
   - Si la ronda es solo de **escalas**, no se pueden bajar tríos.

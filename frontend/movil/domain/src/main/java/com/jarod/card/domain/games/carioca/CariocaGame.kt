@@ -328,10 +328,10 @@ object CariocaGame : Game<CariocaState> {
         // Solo quien se bajó en la ronda actual y en un turno anterior puede dar cartas (rules.md §8)
         val canLayOff = p in state.meldedThisRound && p !in state.meldedThisTurn
         if (!canLayOff) return reject("Para dar cartas debes haberte bajado en un turno anterior")
-        // Validar resultado
+        // Validar lay-off preservando posiciones de jokers en el meld original
         val oldMeld = ownerMelds[a.meldIndex]
-        val newMeld = MeldValidator.validate(oldMeld.cards + card, state.ruleset)
-        return if (newMeld == null) reject("Añadir la carta rompe la combinación")
+        val newMeld = MeldValidator.validateLayOff(oldMeld, card, state.ruleset)
+        return if (newMeld == null) reject("Añadir la carta rompe la combinación o choca con un comodín")
         else ok()
     }
 
@@ -343,7 +343,7 @@ object CariocaGame : Game<CariocaState> {
         val newHands = state.hands + (p to newHand)
         val ownerMelds = state.table[a.meldOwner]!!.toMutableList()
         val oldMeld = ownerMelds[a.meldIndex]
-        val newMeld = MeldValidator.canonicalize(oldMeld.cards + card, state.ruleset)!!
+        val newMeld = MeldValidator.validateLayOff(oldMeld, card, state.ruleset)!!
         ownerMelds[a.meldIndex] = newMeld
         val newTable = state.table + (a.meldOwner to ownerMelds)
         val events = listOf(CardLaidOff(state.seq + 1, p, a.cardId, a.meldOwner, a.meldIndex))
