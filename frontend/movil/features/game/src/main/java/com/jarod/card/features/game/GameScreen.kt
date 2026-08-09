@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Loop
+import androidx.compose.material.icons.filled.TrackChanges
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -939,8 +940,7 @@ private fun RoundEndDialog(
             isCurrentPlayer = isMe,
             perRoundScores = emptyList(), // TODO: tracking por ronda
             roundPoints = info.pointsGained[r.playerId] ?: 0,
-            isRoundWinner = r.playerId == info.winner,
-            meldsText = describeMelds(st.table[r.playerId].orEmpty())
+            isRoundWinner = r.playerId == info.winner
         )
     }
 
@@ -972,6 +972,10 @@ private fun RoundEndDialog(
                         textAlign = TextAlign.Center
                     )
                 }
+
+                // Objetivo de la ronda (lo que todos debían bajar, ej. "2 tríos")
+                val round = st.ruleset.rounds[st.roundIndex]
+                RoundObjectiveRow(objective = describeRoundObjective(round))
 
                 // Resumen congelado de la ronda (duración y turnos)
                 roundSummary?.let { summary ->
@@ -1087,6 +1091,30 @@ private fun RowScope.SummaryStat(
     }
 }
 
+/** Fila del objetivo de la ronda (lo que todos debían bajar, ej. "2 tríos"). */
+@Composable
+private fun RoundObjectiveRow(objective: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Filled.TrackChanges,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = "Objetivo de la ronda: $objective",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
 // ──────────────────────────────────────────────────────────────
 // Scoreboard genérico (reutilizable en cualquier juego)
 // ──────────────────────────────────────────────────────────────
@@ -1101,24 +1129,24 @@ data class ScoreboardEntry(
     val isCurrentPlayer: Boolean = false,
     /** Puntos por ronda (índice = número de ronda - 1). */
     val perRoundScores: List<Int> = emptyList(),
-    /** Lo que el jugador bajó en la ronda (ej. "2 tríos · 1 escala"). Null si no hay info. */
-    val meldsText: String? = null,
     /** Puntos obtenidos en la ronda que acaba de terminar. Null si no aplica. */
     val roundPoints: Int? = null,
     /** Si este jugador es el ganador de la ronda (o campeón al final de la partida). */
     val isRoundWinner: Boolean = false,
 )
 
-/** Descripción compacta de las combinaciones bajadas en la ronda (ej. "2 tríos · 1 escala"). */
-private fun describeMelds(melds: List<Meld>): String? {
-    if (melds.isEmpty()) return null
-    val trios = melds.count { it is Meld.Triple }
-    val runs = melds.count { it is Meld.Run }
-    return buildList {
-        if (trios > 0) add(plural(trios, "trío"))
-        if (runs > 0) add(plural(runs, "escala"))
-    }.joinToString(" · ")
-}
+/** Descripción del objetivo de la ronda (lo que todos deben bajar, ej. "2 tríos"). */
+private fun describeRoundObjective(round: CariocaRound): String =
+    round.combos.joinToString(" · ") { spec ->
+        when (spec.type) {
+            ComboType.TRIPLE -> plural(spec.count, "trío")
+            ComboType.RUN -> if (spec.exactLength == 13) {
+                plural(spec.count, "escala real")
+            } else {
+                plural(spec.count, "escala")
+            }
+        }
+    }
 
 // Helper: fila de scores por ronda dentro del desglose
 @Composable
@@ -1210,13 +1238,6 @@ private fun ScoreboardPlayerCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    entry.meldsText?.let { melds ->
-                        Text(
-                            text = "Bajó: $melds",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
                 }
             }
             HorizontalDivider(Modifier.padding(vertical = 10.dp))
