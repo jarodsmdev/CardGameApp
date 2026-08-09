@@ -315,6 +315,7 @@ fun GameScreen(
             humanId = ui.humanId,
             gameStats = ui.gameStats,
             cumulativeStats = ui.cumulativeStats,
+            roundsScores = ui.roundsScores,
             onRestart = viewModel::startGame
         )
     }
@@ -328,6 +329,7 @@ fun GameScreen(
                 st = st,
                 humanId = ui.humanId,
                 roundSummary = ui.roundSummary,
+                roundsScores = ui.roundsScores,
                 onContinue = { viewModel.clearRoundEnd() },
                 onExit = { showExitDialog = true }
             )
@@ -873,6 +875,7 @@ private fun GameEndDialog(
     humanId: PlayerId?,
     gameStats: GameStats?,
     cumulativeStats: CumulativeStats,
+    roundsScores: List<Map<PlayerId, Int>>,
     onRestart: () -> Unit
 ) {
     val rankings = st.result?.rankings.orEmpty().sortedBy { it.rank }
@@ -886,7 +889,7 @@ private fun GameEndDialog(
             totalScore = r.score,
             roundsWon = r.roundsWon,
             isCurrentPlayer = isMe,
-            perRoundScores = emptyList(), // TODO: necesitaría tracking por ronda
+            perRoundScores = roundsScores.map { it[r.playerId] ?: 0 },
             isRoundWinner = r.rank == 1
         )
     }
@@ -917,6 +920,7 @@ private fun RoundEndDialog(
     st: CariocaState,
     humanId: PlayerId?,
     roundSummary: RoundStats?,
+    roundsScores: List<Map<PlayerId, Int>>,
     onContinue: () -> Unit,
     onExit: () -> Unit
 ) {
@@ -940,7 +944,7 @@ private fun RoundEndDialog(
             totalScore = r.score,
             roundsWon = r.roundsWon,
             isCurrentPlayer = isMe,
-            perRoundScores = emptyList(), // TODO: tracking por ronda
+            perRoundScores = roundsScores.map { it[r.playerId] ?: 0 },
             roundPoints = info.pointsGained[r.playerId] ?: 0,
             isRoundWinner = r.playerId == info.winner
         )
@@ -985,10 +989,11 @@ private fun RoundEndDialog(
                 }
 
                 // Scoreboard compacto (sin "Jugar de nuevo": esa acción solo
-                // corresponde al final de la partida, en GameEndDialog)
+                // corresponde al final de la partida, en GameEndDialog). El desglose
+                // muestra solo las rondas ya jugadas.
                 Scoreboard(
                     entries = entries,
-                    roundCount = st.ruleset.rounds.size,
+                    roundCount = roundsScores.size.coerceAtLeast(1),
                     gameStats = null,
                     cumulativeStats = null,
                     onDismiss = null

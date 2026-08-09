@@ -49,7 +49,9 @@ data class GameUiState(
     /** Info de fin de ronda para mostrar diálogo (ganador, puntos, nº ronda). */
     val roundEndInfo: RoundEndInfo? = null,
     /** Resumen congelado de la ronda terminada (duración y turnos), para el scoreboard. */
-    val roundSummary: RoundStats? = null
+    val roundSummary: RoundStats? = null,
+    /** Puntos ganados por ronda, en orden (índice = ronda - 1), para el desglose del scoreboard. */
+    val roundsScores: List<Map<PlayerId, Int>> = emptyList()
 )
 
 data class RoundEndInfo(
@@ -69,6 +71,7 @@ class GameViewModel @Inject constructor(
     val uiState: StateFlow<GameUiState> = _uiState.asStateFlow()
 
     private val statsTracker = GameStatsTracker()
+    private val perRoundScores = mutableListOf<Map<PlayerId, Int>>()
 
     private val rng = java.util.Random()
     private var botJob: Job? = null
@@ -82,6 +85,7 @@ class GameViewModel @Inject constructor(
         botJob?.cancel()
         turnTimerJob?.cancel()
         turnTimerJob = null
+        perRoundScores.clear()
         val gameSeed = seed ?: rng.nextLong()
         viewModelScope.launch {
             val players = listOf(PlayerId("tu")) + (1..3).map { PlayerId("bot$it") }
@@ -94,6 +98,7 @@ class GameViewModel @Inject constructor(
                 secondsLeft = -1,
                 gameStats = null,
                 roundSummary = null,
+                roundsScores = emptyList(),
                 cumulativeStats = statsStore.read()
             )
             statsTracker.startGame()
@@ -166,6 +171,7 @@ class GameViewModel @Inject constructor(
         // Buscar evento RoundEnd en la transición
         val roundEndEvent = transition.events.firstOrNull { it is RoundEnd } as? RoundEnd
         val newRoundEndInfo = roundEndEvent?.let {
+            perRoundScores += it.pointsGained
             RoundEndInfo(
                 round = (_uiState.value.state?.roundIndex ?: 0) + 1, // ronda que acaba de terminar
                 winner = it.winner,
@@ -175,7 +181,8 @@ class GameViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(
             state = transition.state,
             error = null,
-            roundEndInfo = newRoundEndInfo
+            roundEndInfo = newRoundEndInfo,
+            roundsScores = perRoundScores.toList()
         )
         trackState(transition.state)
     }
