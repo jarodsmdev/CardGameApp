@@ -90,6 +90,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarod.card.core.ui.ConfirmDialog
 import com.jarod.card.core.util.formatClock
 import com.jarod.card.core.util.formatDuration
+import com.jarod.card.core.util.plural
 import com.jarod.card.domain.engine.GameResult
 import com.jarod.card.domain.engine.PlayerId
 import com.jarod.card.domain.engine.PlayerRanking
@@ -972,8 +973,6 @@ private fun RoundEndDialog(
         }
     )
 }
-
-private fun plural(n: Int, singular: String): String = "$n $singular${if (n == 1) "" else "s"}"
 
 /**
  * Resumen congelado de la ronda terminada (duración y turnos), con una breve

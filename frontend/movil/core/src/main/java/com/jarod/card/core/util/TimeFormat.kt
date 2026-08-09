@@ -1,6 +1,13 @@
 package com.jarod.card.core.util
 
 /**
+ * Pluraliza un sustantivo simple según la cantidad, en español: "1 ronda",
+ * "3 rondas". Solo agrega "s" al singular.
+ */
+fun plural(n: Int, singular: String): String = "$n $singular${if (n == 1) "" else "s"}"
+
+
+/**
  * Reloj MM:SS (o HH:MM:SS a partir de 1h). Pensado para estadísticas de
  * partida/ronda donde el tiempo se muestra en formato de reloj.
  *

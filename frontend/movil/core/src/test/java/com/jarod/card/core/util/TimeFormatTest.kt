@@ -36,4 +36,12 @@ class TimeFormatTest {
         assertEquals("1m 35s", formatDuration(95_000))
         assertEquals("2m 5s", formatDuration(125_000))
     }
+
+    @Test
+    fun `plural agrega s salvo cuando la cantidad es 1`() {
+        assertEquals("1 ronda", plural(1, "ronda"))
+        assertEquals("3 rondas", plural(3, "ronda"))
+        assertEquals("0 vueltas", plural(0, "vuelta"))
+        assertEquals("27 turnos", plural(27, "turno"))
+    }
 }
