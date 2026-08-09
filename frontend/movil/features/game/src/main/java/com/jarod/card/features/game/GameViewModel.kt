@@ -19,6 +19,7 @@ import com.jarod.card.domain.games.carioca.DrawFromStock
 import com.jarod.card.domain.games.carioca.MeldAction
 import com.jarod.card.domain.games.carioca.RoundEnd
 import com.jarod.card.domain.games.carioca.Stage
+import com.jarod.card.domain.games.carioca.StartNextRound
 import com.jarod.card.features.game.cardskin.CardSkin
 import com.jarod.card.features.game.cardskin.CardSkinStore
 import com.jarod.card.features.game.stats.CumulativeStats
@@ -124,7 +125,14 @@ class GameViewModel @Inject constructor(
     }
 
     fun clearRoundEnd() {
-        _uiState.value = _uiState.value.copy(roundEndInfo = null)
+        val st = currentState() ?: return
+        val human = _uiState.value.humanId ?: return
+        if (st.phase == CariocaPhase.ROUND_END) {
+            // Recién al cerrar el scoreboard se reparte y comienza la siguiente ronda
+            applyAction(StartNextRound(human))
+        } else {
+            _uiState.value = _uiState.value.copy(roundEndInfo = null)
+        }
     }
 
     private inline fun humanAction(build: (PlayerId) -> CariocaAction?) {
@@ -155,7 +163,7 @@ class GameViewModel @Inject constructor(
         val roundEndEvent = transition.events.firstOrNull { it is RoundEnd } as? RoundEnd
         val newRoundEndInfo = roundEndEvent?.let {
             RoundEndInfo(
-                round = _uiState.value.state?.roundIndex ?: 1, // ronda que acaba de terminar
+                round = (_uiState.value.state?.roundIndex ?: 0) + 1, // ronda que acaba de terminar
                 winner = it.winner,
                 pointsGained = it.pointsGained
             )

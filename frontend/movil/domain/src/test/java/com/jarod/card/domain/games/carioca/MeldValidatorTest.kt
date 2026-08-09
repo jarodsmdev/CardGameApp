@@ -81,12 +81,78 @@ class MeldValidatorTest {
     }
 
     @Test
+    fun `escala devuelve cartas ordenadas aunque se pasen desordenadas`() {
+        val m = MeldValidator.validateRun(
+            listOf(card(Suit.HEART, Rank.TEN), card(Suit.HEART, Rank.SEVEN), card(Suit.HEART, Rank.NINE), card(Suit.HEART, Rank.EIGHT)),
+            rules
+        )
+        assertEquals(listOf(Rank.SEVEN, Rank.EIGHT, Rank.NINE, Rank.TEN), m!!.cards.map { (it as PlayingCard).rank })
+    }
+
+    @Test
+    fun `escala con giro Q-K-A-2 devuelve orden Q-K-A-2`() {
+        val m = MeldValidator.validateRun(
+            listOf(card(Suit.HEART, Rank.TWO), card(Suit.HEART, Rank.ACE), card(Suit.HEART, Rank.QUEEN), card(Suit.HEART, Rank.KING)),
+            rules
+        )
+        assertEquals(listOf(Rank.QUEEN, Rank.KING, Rank.ACE, Rank.TWO), m!!.cards.map { (it as PlayingCard).rank })
+    }
+
+    @Test
     fun `escala con joker rellena hueco, 4-5-joker-7`() {
         val m = MeldValidator.validateRun(
             listOf(card(Suit.HEART, Rank.FOUR), card(Suit.HEART, Rank.FIVE), joker(), card(Suit.HEART, Rank.SEVEN)),
             rules
         )
         assertNotNull("joker rellena 6", m)
+    }
+
+    @Test
+    fun `escala con joker coloca el joker en su hueco exacto`() {
+        val j = joker()
+        val m = MeldValidator.validateRun(
+            listOf(card(Suit.HEART, Rank.SEVEN), card(Suit.HEART, Rank.FOUR), j, card(Suit.HEART, Rank.FIVE)),
+            rules
+        )
+        assertEquals(listOf(Rank.FOUR, Rank.FIVE, Rank.SEVEN), m!!.cards.mapNotNull { (it as? PlayingCard)?.rank })
+        assertEquals(j, m.cards[2])
+    }
+
+    @Test
+    fun `escala tras lay-off, carta añadida a un extremo queda en orden`() {
+        val run = Meld.Run(listOf(
+            card(Suit.SPADE, Rank.SEVEN), card(Suit.SPADE, Rank.EIGHT),
+            card(Suit.SPADE, Rank.NINE), card(Suit.SPADE, Rank.TEN)
+        ))
+        val added = card(Suit.SPADE, Rank.SIX)
+        val m = MeldValidator.validate(run.cards + added, rules)
+        assertEquals(listOf(Rank.SIX, Rank.SEVEN, Rank.EIGHT, Rank.NINE, Rank.TEN), (m as Meld.Run).cards.map { (it as PlayingCard).rank })
+    }
+
+    @Test
+    fun `escala tras lay-off, joker añadido a un extremo queda en su hueco`() {
+        val j = joker()
+        val run = Meld.Run(listOf(
+            card(Suit.SPADE, Rank.SEVEN), card(Suit.SPADE, Rank.EIGHT),
+            card(Suit.SPADE, Rank.NINE), card(Suit.SPADE, Rank.TEN)
+        ))
+        val m = MeldValidator.validate(run.cards + j, rules)
+        val mm = m as Meld.Run
+        assertEquals(j, mm.cards.first())
+        assertEquals(listOf(Rank.SEVEN, Rank.EIGHT, Rank.NINE, Rank.TEN), mm.cards.mapNotNull { (it as? PlayingCard)?.rank })
+    }
+
+    @Test
+    fun `escala tras lay-off, real añadido reordena y joker existente se conserva`() {
+        val j = joker()
+        val run = Meld.Run(listOf(
+            card(Suit.SPADE, Rank.SEVEN), j, card(Suit.SPADE, Rank.NINE), card(Suit.SPADE, Rank.TEN)
+        ))
+        val added = card(Suit.SPADE, Rank.EIGHT)
+        val m = MeldValidator.validate(run.cards + added, rules)
+        val mm = m as Meld.Run
+        assertEquals(listOf(Rank.SEVEN, Rank.EIGHT, Rank.NINE, Rank.TEN), mm.cards.mapNotNull { (it as? PlayingCard)?.rank })
+        assertEquals(j, mm.cards.first { it is JokerCard })
     }
 
     @Test

@@ -174,7 +174,7 @@ class CariocaGameTest {
     }
 
     @Test
-    fun `fin de ronda, ganador suma 0, otros suman puntos de mano`() {
+    fun `fin de ronda, ganador suma 0, otros suman puntos de mano y queda pausado`() {
         var res = CariocaGame.createGame(players, rules, 12345L)
         var st = res.state
         val current = st.currentPlayer!!
@@ -183,15 +183,34 @@ class CariocaGameTest {
         // Preparar mano vacía para que corte: quitar todas las cartas y descartar una
         val drawn = st.hands[current]!!.last()
         st = st.copy(hands = st.hands + (current to mutableListOf(drawn)))
-        // Descartar la única carta → mano vacía = fin de ronda y reparto de ronda 2
+        // Descartar la única carta → mano vacía = fin de ronda y pausa en ROUND_END
         st = CariocaGame.perform(st, DiscardAction(current, drawn.id)).state
-        assertEquals(CariocaPhase.PLAYING, st.phase)
-        assertEquals(1, st.roundIndex)
+        assertEquals(CariocaPhase.ROUND_END, st.phase)
+        assertEquals(0, st.roundIndex) // ronda 1 recién terminada
         assertEquals(0, st.scores[current]!!)
         players.filter { it != current }.forEach { p ->
             assertTrue(st.scores[p]!! > 0)
         }
         assertEquals(1, st.roundsWon[current]!!)
+
+        // La siguiente ronda NO comienza hasta continuar desde el scoreboard
+        assertTrue(st.hands[current]!!.isEmpty())
+        val human = players.first()
+        st = CariocaGame.perform(st, StartNextRound(human)).state
+        assertEquals(CariocaPhase.PLAYING, st.phase)
+        assertEquals(1, st.roundIndex) // ahora sí, ronda 2
+        players.forEach { p ->
+            assertEquals(rules.handSize, st.hands[p]!!.size)
+        }
+    }
+
+    @Test
+    fun `StartNextRound rechazado fuera de fase ROUND_END`() {
+        var res = CariocaGame.createGame(players, rules, 12345L)
+        val st = res.state
+        val human = players.first()
+        val vr = CariocaGame.canPerform(st, StartNextRound(human))
+        assertFalse("No debe avanzar mientras se juega", vr.valid)
     }
 
     @Test
@@ -297,6 +316,13 @@ class CariocaGameTest {
         val rng = java.util.Random(999L)
         var steps = 0
         while (st.phase != CariocaPhase.GAME_END && steps < 30000) {
+            // Al terminar una ronda el juego queda pausado en ROUND_END hasta
+            // que se continúa desde el scoreboard (StartNextRound).
+            if (st.phase == CariocaPhase.ROUND_END) {
+                st = CariocaGame.perform(st, StartNextRound(st.players.first())).state
+                steps++
+                continue
+            }
             val current = st.currentPlayer!!
             val action = CariocaBot.chooseAction(st, current, rng)
             val vr = CariocaGame.canPerform(st, action)

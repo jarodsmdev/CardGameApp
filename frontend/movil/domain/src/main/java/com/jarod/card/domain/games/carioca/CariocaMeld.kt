@@ -41,6 +41,7 @@ object MeldValidator {
     /**
      * Escala: 4+ cartas consecutivas de la misma pinta (o 13 con el giro del
      * ciclo A→1→…→K→A). Los jokers rellenan un rango faltante.
+     * Devuelve la Run con cartas ordenadas secuencialmente (jokers en su posición).
      */
     fun validateRun(cards: List<Card>, rules: CariocaRuleset): Meld.Run? {
         val real = cards.filterIsInstance<PlayingCard>()
@@ -53,14 +54,28 @@ object MeldValidator {
         if (jokers > rules.jokerRules.maxPerMeld) return null
         if (cards.size < rules.runRules.minLength) return null
 
-        // Los jokers rellenan huecos: es válida si existe un arco contiguo de
-        // tamaño `cards.size` sobre el ciclo que contenga todos los rangos reales.
         val ranksSet = realRanks.toSet()
         val len = cards.size
+
         for (start in 0 until Rank.CYCLE_SIZE) {
             if (start + len > Rank.CYCLE_SIZE && !rules.runRules.wraparound) continue
             val window = (0 until len).map { (start + it) % Rank.CYCLE_SIZE }.toSet()
-            if (ranksSet.all { it in window }) return Meld.Run(cards)
+            if (ranksSet.all { it in window }) {
+                // Construir cartas ordenadas: reales en su posición + jokers rellenando huecos
+                val jokerCards = cards.filterIsInstance<JokerCard>().toMutableList()
+                val ordered = (0 until len).map { offset ->
+                    val idx = (start + offset) % Rank.CYCLE_SIZE
+                    // Buscar carta real con este cycleIndex
+                    val realCard = real.find { it.rank.cycleIndex == idx }
+                    if (realCard != null) realCard
+                    else {
+                        // Usar un joker para esta posición
+                        require(jokerCards.isNotEmpty()) { "Falta joker para posición $idx" }
+                        jokerCards.removeFirst()
+                    }
+                }.toList()
+                return Meld.Run(ordered)
+            }
         }
         return null
     }

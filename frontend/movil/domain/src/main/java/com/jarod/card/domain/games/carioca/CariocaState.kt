@@ -46,6 +46,9 @@ data class MeldAction(override val playerId: PlayerId, val groups: List<Meld>) :
 data class DiscardAction(override val playerId: PlayerId, val cardId: String) : CariocaAction
 data class LayOffAction(override val playerId: PlayerId, val cardId: String, val meldOwner: PlayerId, val meldIndex: Int) : CariocaAction
 
+/** Avanza a la siguiente ronda tras cerrar el scoreboard (fase ROUND_END). */
+data class StartNextRound(override val playerId: PlayerId) : CariocaAction
+
 /** Eventos emitidos por Carioca (game-engine.md §5.2). */
 sealed interface CariocaEvent : GameEvent
 data class RoundStarted(override val seq: Long, val round: Int, val dealer: PlayerId, val handSize: Int) : CariocaEvent

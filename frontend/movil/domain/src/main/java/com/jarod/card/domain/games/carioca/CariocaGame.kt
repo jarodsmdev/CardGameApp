@@ -51,11 +51,19 @@ object CariocaGame : Game<CariocaState> {
     // Game interface
     // ──────────────────────────────────────────────────────────────
     override fun canPerform(state: CariocaState, action: GameAction): ValidationResult {
-        if (state.phase != CariocaPhase.PLAYING) return reject("Fase no jugable")
         if (action !is CariocaAction) return reject("Acción no de Carioca")
         val a = action
         val p = a.playerId
         require(p in state.players) { "Jugador no existe" }
+
+        // Avance a la siguiente ronda: solo desde el estado de resultados
+        // (scoreboard) para que el reparto ocurra tras cerrarlo.
+        if (a is StartNextRound) {
+            return if (state.phase == CariocaPhase.ROUND_END) ok()
+            else reject("No hay ronda terminada que continuar")
+        }
+
+        if (state.phase != CariocaPhase.PLAYING) return reject("Fase no jugable")
         val current = state.currentPlayer
         require(current != null) { "Sin jugador actual" }
 
@@ -77,6 +85,8 @@ object CariocaGame : Game<CariocaState> {
             } else reject("No es tu turno o fase incorrecta")
 
             is LayOffAction -> validateLayOff(state, a)
+
+            is StartNextRound -> reject("Acción no válida ahora")
         }
     }
 
@@ -91,10 +101,18 @@ object CariocaGame : Game<CariocaState> {
             is MeldAction -> meld(state, a)
             is DiscardAction -> discard(state, a)
             is LayOffAction -> layOff(state, a)
+            is StartNextRound -> startNextRound(state)
         }
     }
 
     override fun resolve(state: CariocaState): GameResult = state.result ?: buildResult(state)
+
+    /** Reparte la siguiente ronda (solo tras continuar desde el scoreboard). */
+    private fun startNextRound(state: CariocaState): GameTransition<CariocaState> {
+        val events = mutableListOf<GameEvent>()
+        val s = dealRound(state.copy(roundIndex = state.roundIndex + 1), events)
+        return GameTransition(s, events.toList())
+    }
 
     // ──────────────────────────────────────────────────────────────
     // Reparto (CCW: dealer último, primero a la derecha del dealer)
@@ -225,7 +243,10 @@ object CariocaGame : Game<CariocaState> {
         val usedIds = a.groups.flatMap { it.cards.map { it.id } }.toSet()
         val newHand = hand.filter { it.id !in usedIds }
         val newHands = state.hands + (p to newHand)
-        val newTable = state.table + (p to (state.table[p]!! + a.groups))
+        // Almacenar combinaciones canónicas (revalidadas) para que las escalas
+        // queden ordenadas secuencialmente con los jokers en su posición.
+        val canonicalGroups = a.groups.map { MeldValidator.validate(it.cards, state.ruleset)!! }
+        val newTable = state.table + (p to (state.table[p]!! + canonicalGroups))
         val newMelded = state.meldedThisRound + p
         val groupIds = a.groups.map { it.cardIds() }
         val events = listOf(CardsMeld(state.seq + 1, p, groupIds))
@@ -369,19 +390,17 @@ object CariocaGame : Game<CariocaState> {
                 seq = state.seq + 2
             )
         } else {
-            // Siguiente ronda: nuevo reparto
-            val s = state.copy(
-                phase = CariocaPhase.ROUND_END,
-                roundIndex = state.roundIndex + 1,
-                scores = newScores,
-                roundsWon = newRoundsWon,
-                seq = state.seq + 1
-            )
-            val events = mutableListOf<GameEvent>()
-            val s2 = dealRound(s, events)
+            // Pausa en resultados: la siguiente ronda NO se reparte hasta que el
+            // jugador continúe desde el scoreboard (StartNextRound). El estado
+            // ROUND_END mantiene scores/roundsWon actualizados pero no reparte.
             return GameTransition(
-                s2.copy(phase = CariocaPhase.PLAYING),
-                priorEvents + roundEndEvent + events
+                state.copy(
+                    phase = CariocaPhase.ROUND_END,
+                    scores = newScores,
+                    roundsWon = newRoundsWon,
+                    seq = state.seq + 1
+                ),
+                priorEvents + roundEndEvent
             )
         }
         return GameTransition(
