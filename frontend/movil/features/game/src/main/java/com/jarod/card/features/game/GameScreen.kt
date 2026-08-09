@@ -90,6 +90,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -890,19 +892,17 @@ private fun GameEndDialog(
         )
     }
 
-    AlertDialog(
-        onDismissRequest = {},
-        title = { Text("Fin de la partida") },
-        text = {
-            Scoreboard(
-                entries = entries,
-                gameStats = gameStats,
-                cumulativeStats = cumulativeStats,
-                onDismiss = onRestart
-            )
-        },
-        confirmButton = { } // Scoreboard ya tiene botón
-    )
+    ScoreboardDialog(
+        title = "Fin de la partida",
+        onDismissRequest = {}
+    ) {
+        Scoreboard(
+            entries = entries,
+            gameStats = gameStats,
+            cumulativeStats = cumulativeStats,
+            onDismiss = onRestart
+        )
+    }
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -943,62 +943,101 @@ private fun RoundEndDialog(
         )
     }
 
-    AlertDialog(
+    ScoreboardDialog(
+        title = "Fin de la ronda ${info.round}",
         onDismissRequest = {},
-        title = { Text("Fin de la ronda ${info.round}") },
-        text = {
-            Column(modifier = Modifier.padding(16.dp)) {
-                // Ganador de la ronda
-                val winnerName = nameOf(info.winner, humanId)
-                val pointsGained = info.pointsGained[info.winner] ?: 0
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.EmojiEvents,
-                        contentDescription = null,
-                        tint = MedalGold,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "$winnerName gana la ronda (${pointsGained} pts)",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MedalGold,
-                        textAlign = TextAlign.Center
-                    )
-                }
-
-                // Objetivo de la ronda (lo que todos debían bajar, ej. "2 tríos")
-                val round = st.ruleset.rounds[st.roundIndex]
-                RoundObjectiveRow(objective = describeRoundObjective(round))
-
-                // Resumen congelado de la ronda (duración y turnos)
-                roundSummary?.let { summary ->
-                    RoundSummaryHeader(summary = summary)
-                }
-
-                // Scoreboard compacto (sin "Jugar de nuevo": esa acción solo
-                // corresponde al final de la partida, en GameEndDialog)
-                Scoreboard(
-                    entries = entries,
-                    gameStats = null,
-                    cumulativeStats = null,
-                    onDismiss = null
-                )
-            }
-        },
-        confirmButton = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        actions = {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 TextButton(onClick = onExit) { Text("Salir de la partida") }
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.weight(1f))
                 Button(onClick = onContinue) { Text("Continuar") }
             }
         }
-    )
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+            // Ganador de la ronda
+            val winnerName = nameOf(info.winner, humanId)
+            val pointsGained = info.pointsGained[info.winner] ?: 0
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.EmojiEvents,
+                    contentDescription = null,
+                    tint = MedalGold,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "$winnerName gana la ronda (${pointsGained} pts)",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MedalGold,
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            // Objetivo de la ronda (lo que todos debían bajar, ej. "2 tríos")
+            val round = st.ruleset.rounds[st.roundIndex]
+            RoundObjectiveRow(objective = describeRoundObjective(round))
+
+            // Resumen congelado de la ronda (duración y turnos)
+            roundSummary?.let { summary ->
+                RoundSummaryHeader(summary = summary)
+            }
+
+            // Scoreboard compacto (sin "Jugar de nuevo": esa acción solo
+            // corresponde al final de la partida, en GameEndDialog)
+            Scoreboard(
+                entries = entries,
+                gameStats = null,
+                cumulativeStats = null,
+                onDismiss = null
+            )
+        }
+    }
+}
+
+/** Diálogo a ancho casi completo para el scoreboard: aprovecha la pantalla
+ *  para que las cards de jugadores se vean grandes, sin los márgenes anchos
+ *  que deja un AlertDialog por defecto. */
+@Composable
+private fun ScoreboardDialog(
+    title: String,
+    onDismissRequest: () -> Unit,
+    actions: @Composable () -> Unit = {},
+    content: @Composable () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismissRequest,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp
+        ) {
+            Column(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                content()
+                actions()
+            }
+        }
+    }
 }
 
 /**
@@ -1171,6 +1210,18 @@ private fun ScoreboardPlayerCard(
         else -> MaterialTheme.colorScheme.surface
     }
 
+    // Pulso del borde dorado del ganador (va de tenue a intenso y vuelve)
+    val pulse = rememberInfiniteTransition(label = "winnerPulse")
+    val borderAlpha by pulse.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "winnerBorderAlpha"
+    )
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1181,7 +1232,7 @@ private fun ScoreboardPlayerCard(
             },
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = containerColor),
-        border = if (entry.isRoundWinner) BorderStroke(1.5.dp, MedalGold.copy(alpha = 0.7f)) else null,
+        border = if (entry.isRoundWinner) BorderStroke(1.dp, MedalGold.copy(alpha = borderAlpha)) else null,
         elevation = CardDefaults.cardElevation(defaultElevation = if (entry.isRoundWinner) 6.dp else 2.dp)
     ) {
         Column(Modifier.padding(12.dp)) {
@@ -1331,7 +1382,7 @@ fun Scoreboard(
     Column(modifier = modifier
         .fillMaxWidth()
         .verticalScroll(rememberScrollState())
-        .padding(16.dp)
+        .padding(horizontal = 4.dp, vertical = 8.dp)
     ) {
         // ─── Cabecera: cards de jugadores (medalla + nombre + puntajes) ───
         Column {
