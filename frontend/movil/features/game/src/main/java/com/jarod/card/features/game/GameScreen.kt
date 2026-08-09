@@ -328,7 +328,8 @@ fun GameScreen(
                 st = st,
                 humanId = ui.humanId,
                 roundSummary = ui.roundSummary,
-                onContinue = { viewModel.clearRoundEnd() }
+                onContinue = { viewModel.clearRoundEnd() },
+                onExit = { showExitDialog = true }
             )
         }
     }
@@ -916,7 +917,8 @@ private fun RoundEndDialog(
     st: CariocaState,
     humanId: PlayerId?,
     roundSummary: RoundStats?,
-    onContinue: () -> Unit
+    onContinue: () -> Unit,
+    onExit: () -> Unit
 ) {
     // Construir entries del scoreboard con scores actuales
     val rankings = st.players
@@ -994,7 +996,11 @@ private fun RoundEndDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onContinue) { Text("Continuar") }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onExit) { Text("Salir de la partida") }
+                Spacer(Modifier.width(8.dp))
+                Button(onClick = onContinue) { Text("Continuar") }
+            }
         }
     )
 }
