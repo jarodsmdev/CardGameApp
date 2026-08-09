@@ -141,11 +141,67 @@ class GameViewModelTest {
         assertEquals(CariocaPhase.GAME_END, vm.uiState.value.state!!.phase)
     }
 
+    @Test
+    fun `al terminar ronda, el juego queda pausado y solo avanza al continuar desde el scoreboard`() {
+        val vm = newViewModel()
+        var guard = 0
+        // Jugar hasta que termine la primera ronda
+        while (vm.uiState.value.roundEndInfo == null && guard < 2000) {
+            val st = vm.uiState.value.state!!
+            val human = vm.uiState.value.humanId!!
+            if (st.phase == CariocaPhase.ROUND_END) {
+                vm.clearRoundEnd()
+            } else if (st.currentPlayer == human) {
+                if (st.stage == Stage.DRAW) vm.drawFromStock()
+                else {
+                    val hand = st.hands[human]!!
+                    val discardable = hand.firstOrNull { it !is com.jarod.card.domain.core.JokerCard } ?: hand.first()
+                    vm.discard(discardable.id)
+                }
+            }
+            advance()
+            guard++
+        }
+        // Ronda 1 terminó: scoreboard visible, juego pausado en ROUND_END
+        val info = vm.uiState.value.roundEndInfo
+        assertNotNull(info)
+        assertEquals(1, info!!.round)
+        val pausedRound = vm.uiState.value.state!!
+        assertEquals(CariocaPhase.ROUND_END, pausedRound.phase)
+        val pausedIndex = pausedRound.roundIndex
+
+        // Mientras el scoreboard está abierto, la siguiente ronda NO avanza
+        advance()
+        advance()
+        val still = vm.uiState.value.state!!
+        assertEquals(CariocaPhase.ROUND_END, still.phase)
+        assertEquals(pausedIndex, still.roundIndex)
+        assertNotNull("El scoreboard sigue visible", vm.uiState.value.roundEndInfo)
+
+        // Al continuar desde el scoreboard recién comienza la siguiente ronda
+        vm.clearRoundEnd()
+        advance()
+        val next = vm.uiState.value.state!!
+        assertEquals(CariocaPhase.PLAYING, next.phase)
+        assertEquals(pausedIndex + 1, next.roundIndex)
+        assertEquals(rules().handSize, next.hands[vm.uiState.value.humanId!!]!!.size)
+        assertTrue("Diálogo cerrado", vm.uiState.value.roundEndInfo == null)
+    }
+
+    private fun rules() = CariocaRuleset()
+
     private fun playUntilEnd(vm: GameViewModel) {
         var guard = 0
         while (vm.uiState.value.state?.phase != CariocaPhase.GAME_END && guard < 2000) {
             val st = vm.uiState.value.state!!
             val human = vm.uiState.value.humanId!!
+            // Al terminar una ronda el juego queda pausado: continuar desde el scoreboard
+            if (st.phase == CariocaPhase.ROUND_END) {
+                vm.clearRoundEnd()
+                advance()
+                guard++
+                continue
+            }
             if (st.currentPlayer == human) {
                 if (st.stage == Stage.DRAW) {
                     vm.drawFromStock()
