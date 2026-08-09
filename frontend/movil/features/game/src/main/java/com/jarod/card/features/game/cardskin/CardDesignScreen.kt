@@ -144,18 +144,6 @@ fun CardDesignScreen(
             onSelect = viewModel::selectJoker
         )
     }
-
-//    if (showExitDialog) {
-//        ConfirmDialog(
-//            title = "Salir de ajustes",
-//            text = "¿Quieres volver al lobby? El diseño se guarda automáticamente.",
-//            onConfirm = {
-//                showExitDialog = false
-//                onBack()
-//            },
-//            onDismiss = { showExitDialog = false }
-//        )
-//    }
 }
 
 @Composable
