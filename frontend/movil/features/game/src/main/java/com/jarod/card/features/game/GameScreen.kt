@@ -315,7 +315,6 @@ fun GameScreen(
             humanId = ui.humanId,
             gameStats = ui.gameStats,
             cumulativeStats = ui.cumulativeStats,
-            roundsScores = ui.roundsScores,
             onRestart = viewModel::startGame
         )
     }
@@ -329,7 +328,6 @@ fun GameScreen(
                 st = st,
                 humanId = ui.humanId,
                 roundSummary = ui.roundSummary,
-                roundsScores = ui.roundsScores,
                 onContinue = { viewModel.clearRoundEnd() },
                 onExit = { showExitDialog = true }
             )
@@ -875,7 +873,6 @@ private fun GameEndDialog(
     humanId: PlayerId?,
     gameStats: GameStats?,
     cumulativeStats: CumulativeStats,
-    roundsScores: List<Map<PlayerId, Int>>,
     onRestart: () -> Unit
 ) {
     val rankings = st.result?.rankings.orEmpty().sortedBy { it.rank }
@@ -889,7 +886,6 @@ private fun GameEndDialog(
             totalScore = r.score,
             roundsWon = r.roundsWon,
             isCurrentPlayer = isMe,
-            perRoundScores = roundsScores.map { it[r.playerId] ?: 0 },
             isRoundWinner = r.rank == 1
         )
     }
@@ -900,7 +896,6 @@ private fun GameEndDialog(
         text = {
             Scoreboard(
                 entries = entries,
-                roundCount = st.ruleset.rounds.size,
                 gameStats = gameStats,
                 cumulativeStats = cumulativeStats,
                 onDismiss = onRestart
@@ -920,7 +915,6 @@ private fun RoundEndDialog(
     st: CariocaState,
     humanId: PlayerId?,
     roundSummary: RoundStats?,
-    roundsScores: List<Map<PlayerId, Int>>,
     onContinue: () -> Unit,
     onExit: () -> Unit
 ) {
@@ -944,7 +938,6 @@ private fun RoundEndDialog(
             totalScore = r.score,
             roundsWon = r.roundsWon,
             isCurrentPlayer = isMe,
-            perRoundScores = roundsScores.map { it[r.playerId] ?: 0 },
             roundPoints = info.pointsGained[r.playerId] ?: 0,
             isRoundWinner = r.playerId == info.winner
         )
@@ -989,11 +982,9 @@ private fun RoundEndDialog(
                 }
 
                 // Scoreboard compacto (sin "Jugar de nuevo": esa acción solo
-                // corresponde al final de la partida, en GameEndDialog). El desglose
-                // muestra solo las rondas ya jugadas.
+                // corresponde al final de la partida, en GameEndDialog)
                 Scoreboard(
                     entries = entries,
-                    roundCount = roundsScores.size.coerceAtLeast(1),
                     gameStats = null,
                     cumulativeStats = null,
                     onDismiss = null
@@ -1138,8 +1129,6 @@ data class ScoreboardEntry(
     val totalScore: Int,
     val roundsWon: Int,
     val isCurrentPlayer: Boolean = false,
-    /** Puntos por ronda (índice = número de ronda - 1). */
-    val perRoundScores: List<Int> = emptyList(),
     /** Puntos obtenidos en la ronda que acaba de terminar. Null si no aplica. */
     val roundPoints: Int? = null,
     /** Si este jugador es el ganador de la ronda (o campeón al final de la partida). */
@@ -1158,29 +1147,6 @@ private fun describeRoundObjective(round: CariocaRound): String =
             }
         }
     }
-
-// Helper: fila de scores por ronda dentro del desglose
-@Composable
-private fun ScoreRow(scores: List<Int?>, totalScore: Int) {
-    Row {
-        scores.forEach { score ->
-            Text(
-                text = score?.toString() ?: "—",
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-                color = if (score != null && score > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f)
-            )
-        }
-        Text(
-            text = totalScore.toString(),
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.End,
-            modifier = Modifier.weight(1f)
-        )
-    }
-}
 
 /**
  * Card de un jugador en el scoreboard: medalla + nombre en la cabecera y,
@@ -1349,21 +1315,19 @@ private fun WinnerChip() {
 }
 
 /**
- * Scoreboard genérico: tabla de posiciones con medalla, desglose por ronda,
- * stats de la partida y stats acumuladas.
+ * Scoreboard genérico: tabla de posiciones con medalla, stats de la partida
+ * y stats acumuladas.
  *
  * Uso típico: fin de partida (GAME_END), lobby de resultados, perfil de jugador.
  */
 @Composable
 fun Scoreboard(
     entries: List<ScoreboardEntry>,
-    roundCount: Int,
     gameStats: GameStats? = null,
     cumulativeStats: CumulativeStats? = null,
     modifier: Modifier = Modifier,
     onDismiss: (() -> Unit)? = null,
 ) {
-    val maxRounds = maxOf(roundCount, entries.flatMap { it.perRoundScores }.size)
     Column(modifier = modifier
         .fillMaxWidth()
         .verticalScroll(rememberScrollState())
@@ -1383,43 +1347,6 @@ fun Scoreboard(
                     label = "cardReveal$index"
                 )
                 ScoreboardPlayerCard(entry = entry, revealProgress = revealProgress)
-            }
-        }
-
-        // ─── Desglose por ronda (expandible) ───
-        if (maxRounds > 0 && entries.any { it.perRoundScores.isNotEmpty() }) {
-            HorizontalDivider(Modifier.padding(vertical = 12.dp))
-            Text(
-                text = "Desglose por ronda",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.height(8.dp))
-            Column {
-                // Encabezado de columnas
-                Row(Modifier.fillMaxWidth()) {
-                    Text("Jugador", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1.5f))
-                    for (r in 1..maxRounds) {
-                        Text("R$r", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
-                    }
-                    Text("Total", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
-                }
-                HorizontalDivider()
-                entries.forEach { entry ->
-                    val roundScores = (1..maxRounds).map { r -> entry.perRoundScores.getOrNull(r - 1) }
-                    Row(Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp)
-                        .background(
-                            if (entry.isCurrentPlayer)
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
-                            else Color.Transparent
-                        )
-                    ) {
-                        Text(entry.name, style = MaterialTheme.typography.bodyMedium, fontWeight = if (entry.isCurrentPlayer) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.weight(1.5f).padding(end = 8.dp))
-                        ScoreRow(scores = roundScores, totalScore = entry.totalScore)
-                    }
-                }
             }
         }
 
