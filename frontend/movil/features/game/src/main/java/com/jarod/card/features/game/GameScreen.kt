@@ -758,8 +758,6 @@ private fun HandRow(
     }
 
     val currentSelectedId by rememberUpdatedState(selectedCardId)
-    var swipingCardId by remember { mutableStateOf<String?>(null) }
-    var swipeDy by remember { mutableStateOf(0f) }
     var confirmedCardId by remember { mutableStateOf<String?>(null) }
     var confirmedFromY by remember { mutableStateOf(0f) }
     var lastTapCardId by remember { mutableStateOf<String?>(null) }
@@ -806,7 +804,9 @@ private fun HandRow(
         val haptics = LocalHapticFeedback.current
         var dragIndex by remember { mutableStateOf(-1) }
         var dragX by remember { mutableStateOf(0f) }
+        var dragY by remember { mutableStateOf(0f) }
         var dragAnchor by remember { mutableStateOf(0f) }
+        var dragAnchorY by remember { mutableStateOf(0f) }
 
         // El gesto vive en el CONTENEDOR (coordenadas estables): así la carta sigue al
         // dedo 1:1, porque la posición no se mide respecto a la carta en movimiento.
@@ -824,6 +824,14 @@ private fun HandRow(
                         else ((x - startX) / stepPx).toInt().coerceIn(0, n - 1)
                     }
 
+                    // Y visual de una carta en reposo (para que al empezar el arrastre
+                    // no salte): elevada si está seleccionada, si no en su arco.
+                    fun pressVisualY(index: Int, id: String?): Float {
+                        if (id != null && id == currentSelectedId) return -liftPx
+                        val t = if (n > 1) (2f * index - (n - 1)) / (n - 1) else 0f
+                        return -arcRaisePx * (1f - t * t)
+                    }
+
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val pointer = down.id
@@ -831,19 +839,17 @@ private fun HandRow(
                         val cardId = if (pressIndex >= 0) order[pressIndex] else null
                         val cardLeft = if (pressIndex >= 0) startX + pressIndex * stepPx else 0f
                         var dragging = false
-                        var swiping = false
-                        swipingCardId = null
-                        swipeDy = 0f
                         while (true) {
                             val e = awaitPointerEvent()
                             val c = e.changes.firstOrNull { it.id == pointer } ?: break
                             if (!c.pressed) {
-                                if (pressIndex >= 0 && !dragging && !swiping && discardEnabled) {
+                                if (pressIndex >= 0 && !dragging && discardEnabled) {
+                                    // TAP → seleccionar / deseleccionar · doble tap confirma.
                                     val now = SystemClock.uptimeMillis()
                                     val isDoubleTap = cardId == lastTapCardId &&
                                         now - lastTapTime <= doubleTapWindowMs
                                     if (isDoubleTap) {
-                                        confirmedFromY = -liftPx
+                                        confirmedFromY = pressVisualY(pressIndex, cardId)
                                         confirmedCardId = cardId
                                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     } else {
@@ -857,17 +863,24 @@ private fun HandRow(
                                     }
                                     lastTapCardId = cardId
                                     lastTapTime = now
-                                } else if (swiping) {
+                                } else if (dragging) {
+                                    // Un único arrastre: el vector final decide la acción.
                                     when (classifyHandSwipe(
-                                        0f, swipeDy, slop, confirmUpPx, cancelDownPx
+                                        dragX - down.position.x,
+                                        dragY - down.position.y,
+                                        slop,
+                                        confirmUpPx,
+                                        cancelDownPx
                                     )) {
                                         HandSwipe.UP -> {
-                                            // El vuelo parte desde donde soltó el dedo.
-                                            confirmedFromY = swipeDy
-                                            confirmedCardId = cardId
-                                            haptics.performHapticFeedback(
-                                                HapticFeedbackType.LongPress
-                                            )
+                                            if (discardEnabled) {
+                                                // El vuelo parte desde donde soltó el dedo.
+                                                confirmedFromY = dragY - dragAnchorY
+                                                confirmedCardId = cardId
+                                                haptics.performHapticFeedback(
+                                                    HapticFeedbackType.LongPress
+                                                )
+                                            }
                                         }
                                         HandSwipe.DOWN -> {
                                             onSelectionChange(null)
@@ -881,30 +894,29 @@ private fun HandRow(
                                 break
                             }
                             if (pressIndex < 0) break
-                            if (!dragging && !swiping) {
+                            if (!dragging) {
                                 val dx = c.position.x - down.position.x
                                 val dy = c.position.y - down.position.y
-                                // Interacción unificada: cualquier carta puede arrastrarse.
-                                // Eje vertical (↑ descartar / ↓ cancelar) o horizontal (ordenar).
-                                if (isVerticalDominant(dx, dy, slop) && discardEnabled) {
-                                    swiping = true
-                                    swipingCardId = cardId
-                                    swipeDy = dy
-                                    c.consume()
-                                } else if (abs(dx) > slop || abs(dy) > slop) {
-                                    if (currentSelectedId != null) onSelectionChange(null)
+                                if (abs(dx) > slop || abs(dy) > slop) {
                                     dragging = true
                                     dragIndex = pressIndex
                                     dragAnchor = down.position.x - cardLeft
+                                    dragAnchorY = down.position.y - pressVisualY(pressIndex, cardId)
                                     dragX = down.position.x
+                                    dragY = down.position.y
+                                    if (currentSelectedId != null && currentSelectedId != cardId) {
+                                        onSelectionChange(null)
+                                    }
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 }
-                            } else if (swiping) {
-                                swipeDy = c.position.y - down.position.y
-                                c.consume()
                             } else {
                                 dragX = c.position.x
-                                if (n > 1) {
+                                dragY = c.position.y
+                                // Reordenar en vivo solo si el eje dominante es horizontal;
+                                // así un arrastre vertical no baraja la mano.
+                                if (abs(dragX - down.position.x) > abs(dragY - down.position.y) &&
+                                    n > 1
+                                ) {
                                     val center = dragX - dragAnchor + cardWidthPx / 2f
                                     val target = ((center - startX - cardWidthPx / 2f) / stepPx)
                                         .roundToInt()
@@ -922,8 +934,8 @@ private fun HandRow(
                             }
                         }
                         dragIndex = -1
-                        swipingCardId = null
-                        swipeDy = 0f
+                        dragX = 0f
+                        dragY = 0f
                     }
                 }
         )
@@ -935,7 +947,6 @@ private fun HandRow(
                 val card = hand.first { it.id == cardId }
                 val isDragged = dragIndex == index
                 val isSelected = cardId == selectedCardId
-                val isSwiping = cardId == swipingCardId
                 val isConfirmed = cardId == confirmedCardId
 
                 // La carta seleccionada separa ligeramente a sus vecinas.
@@ -970,7 +981,7 @@ private fun HandRow(
                 }
 
                 val lift by animateFloatAsState(
-                    targetValue = if (isDragged || isSelected || isSwiping) 1f else 0f,
+                    targetValue = if (isDragged || isSelected) 1f else 0f,
                     animationSpec = springSpec,
                     label = "lift"
                 )
@@ -988,16 +999,15 @@ private fun HandRow(
                 }
 
                 val t = if (n > 1) (2f * index - (n - 1)) / (n - 1) else 0f
-                val arcRaise = if (isDragged || isSelected || isSwiping)
-                    0f else arcRaisePx * (1f - t * t)
+                val arcRaise = if (isDragged || isSelected) 0f else arcRaisePx * (1f - t * t)
                 val baseY = -liftPx * lift - arcRaise
 
-                // Desplazamiento vertical de la carta: durante el swipe sigue al dedo
-                // 1:1; al soltar vuelve con spring a su posición base (cancelar/reordenar).
+                // Desplazamiento vertical: mientras se arrastra sigue al dedo 1:1;
+                // al soltar vuelve con spring a su posición base (cancelar/reordenar).
                 val yOffset = remember(cardId) { Animatable(0f) }
-                LaunchedEffect(isSwiping, baseY, swipeDy, isConfirmed) {
-                    if (isSwiping) {
-                        yOffset.snapTo(swipeDy)
+                LaunchedEffect(isDragged, dragY, dragAnchorY, isConfirmed) {
+                    if (isDragged) {
+                        yOffset.snapTo(dragY - dragAnchorY)
                     } else if (!isConfirmed) {
                         yOffset.animateTo(baseY, springSpec)
                     }
@@ -1009,21 +1019,20 @@ private fun HandRow(
                         .zIndex(
                             when {
                                 isConfirmed -> 2f
-                                isDragged || isSelected || isSwiping -> 1f
+                                isDragged || isSelected -> 1f
                                 else -> 0f
                             }
                         )
                         .graphicsLayer {
-                            translationX = if (dragIndex == index) dragX - dragAnchor else x.value
-                            // Interacción unificada: la carta sigue el dedo en cada eje.
-                            // ↑ descarta (vuelo desde donde soltó), ↓/ninguno vuelve a la mano.
+                            translationX = if (isDragged) dragX - dragAnchor else x.value
+                            // Un único arrastre en ambos ejes: ↑ descarta (vuelo desde
+                            // donde soltó), ↓/ninguno vuelve a la mano.
                             translationY = when {
-                                isSwiping -> swipeDy
+                                isDragged -> dragY - dragAnchorY
                                 isConfirmed -> confirmedFromY - launch.value * launchDistancePx
                                 else -> yOffset.value
                             }
-                            rotationZ = if (isDragged || isSelected || isSwiping)
-                                0f else t * maxArcRotation
+                            rotationZ = if (isDragged || isSelected) 0f else t * maxArcRotation
                             transformOrigin = TransformOrigin(0.5f, 1f)
                             val extra = 0.12f * launch.value
                             scaleX = 1f + 0.07f * lift + extra
@@ -1040,7 +1049,7 @@ private fun HandRow(
                         skin = skin,
                         modifier = Modifier
                     )
-                    if (isSelected || isSwiping) {
+                    if (isSelected || isDragged) {
                         Box(
                             Modifier
                                 .matchParentSize()

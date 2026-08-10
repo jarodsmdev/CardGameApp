@@ -40,9 +40,10 @@
 - Cliente (Android):
   - [ ] Motor en cliente (misma librería de dominio).
   - [ ] Tablero Carioca (Compose) para partida local vs. bots.
-  - [ ] Selección de cartas de la mano: **tap** selecciona/eleva, **swipe ↑**
+  - [x] Selección de cartas de la mano: **tap** selecciona/eleva, **swipe ↑**
         juega (descartar al pozo), **swipe ↓** cancela y **doble tap** juega
-        (guía en `docs/games/carioca/interactions.md`).
+        (guía en `docs/games/carioca/interactions.md`). *(hecho en
+        `feature/seleccion-cartas`)*
   - [ ] Navegación base y temas.
   - [ ] Feedback de turno del jugador: pulso en mazo/pozo y carta activa,
         tick de jugados y cuenta regresiva con aviso visual de timeout (solo

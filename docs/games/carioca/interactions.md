@@ -56,7 +56,7 @@ decide la acción:
 
 | Arrastre | Acción | Al soltar |
 |---|---|---|
-| **Horizontal** (`←→`) | **Ordenar** la baraja | La carta se desliza con spring a su nueva posición |
+| **Horizontal** (`←→`) | **Ordenar** la baraja (reordena en vivo) | La carta se desliza con spring a su nueva posición |
 | **Vertical ↑** (> `40dp`) | **Jugar / descartar** al pozo | Sale volando hacia arriba (desde donde se soltó) y se descarta |
 | **Vertical ↓** (> `28dp`) | **Cancelar** selección | Vuelve con spring a la mano, sin ejecutar acción |
 | Movimiento corto | Nada | Vuelve con spring a su posición (la selección se mantiene) |
@@ -64,16 +64,16 @@ decide la acción:
 Mientras el dedo está sobre la pantalla, el gesto es **reversible**: subir y
 bajar libremente, y solo al soltar se decide. Haptic `LongPress` al confirmar.
 
-### 3.3 Doble tap → jugar
+El **reordenado horizontal** no es una mecánica aparte: es el mismo arrastre.
+Solo cuando el eje dominante es horizontal la mano se reordena en vivo (así un
+arrastre vertical nunca baraja las cartas). Empezar el arrastre sobre una carta
+**distinta** de la seleccionada limpia la selección activa; arrastrar la propia
+seleccionada la mantiene.
+
+### 3.4 Doble tap → jugar
 
 Dos taps sobre la **misma carta** dentro de `300ms` equivalen a confirmar
 (se envía a la mesa). Alternativa de accesibilidad al arrastre ↑.
-
-### 3.5 Arrastre horizontal → ordenar
-
-El arrastre **horizontal** sigue usado para **reordenar la mano** (mecánica
-preexistente, se conserva). Empezar un arrastre de reorden **cancela** cualquier
-selección activa.
 
 ## 4. Cuándo está disponible
 
