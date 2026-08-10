@@ -698,9 +698,9 @@ private fun ActionBar(
             val canLayOff = CariocaBot.findLayOff(st, humanId) != null
             Text(
                 text = if (selectedCardId != null)
-                    "Swipe ↑ para descartar · Swipe ↓ para cancelar · Doble tap para descartar"
+                    "↑ descartar · ↓ cancelar · doble tap descartar"
                 else
-                    "Toca para seleccionar · arrastra para ordenar",
+                    "Arrastra una carta: ←→ ordenar · ↑ descartar · ↓ cancelar · toca selecciona",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -715,6 +715,12 @@ private fun ActionBar(
                     Text("Añadir a mesa")
                 }
             }
+        } else if (myTurn && st.stage == Stage.DRAW) {
+            Text(
+                text = "Roba una carta: toca el mazo o el pozo",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         } else if (!myTurn) {
             Text(
                 text = "Esperando a los demás…",
@@ -755,6 +761,7 @@ private fun HandRow(
     var swipingCardId by remember { mutableStateOf<String?>(null) }
     var swipeDy by remember { mutableStateOf(0f) }
     var confirmedCardId by remember { mutableStateOf<String?>(null) }
+    var confirmedFromY by remember { mutableStateOf(0f) }
     var lastTapCardId by remember { mutableStateOf<String?>(null) }
     var lastTapTime by remember { mutableStateOf(0L) }
 
@@ -836,6 +843,7 @@ private fun HandRow(
                                     val isDoubleTap = cardId == lastTapCardId &&
                                         now - lastTapTime <= doubleTapWindowMs
                                     if (isDoubleTap) {
+                                        confirmedFromY = -liftPx
                                         confirmedCardId = cardId
                                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     } else {
@@ -854,6 +862,8 @@ private fun HandRow(
                                         0f, swipeDy, slop, confirmUpPx, cancelDownPx
                                     )) {
                                         HandSwipe.UP -> {
+                                            // El vuelo parte desde donde soltó el dedo.
+                                            confirmedFromY = swipeDy
                                             confirmedCardId = cardId
                                             haptics.performHapticFeedback(
                                                 HapticFeedbackType.LongPress
@@ -874,9 +884,9 @@ private fun HandRow(
                             if (!dragging && !swiping) {
                                 val dx = c.position.x - down.position.x
                                 val dy = c.position.y - down.position.y
-                                if (isVerticalDominant(dx, dy, slop) &&
-                                    discardEnabled && cardId == currentSelectedId
-                                ) {
+                                // Interacción unificada: cualquier carta puede arrastrarse.
+                                // Eje vertical (↑ descartar / ↓ cancelar) o horizontal (ordenar).
+                                if (isVerticalDominant(dx, dy, slop) && discardEnabled) {
                                     swiping = true
                                     swipingCardId = cardId
                                     swipeDy = dy
@@ -980,6 +990,18 @@ private fun HandRow(
                 val t = if (n > 1) (2f * index - (n - 1)) / (n - 1) else 0f
                 val arcRaise = if (isDragged || isSelected || isSwiping)
                     0f else arcRaisePx * (1f - t * t)
+                val baseY = -liftPx * lift - arcRaise
+
+                // Desplazamiento vertical de la carta: durante el swipe sigue al dedo
+                // 1:1; al soltar vuelve con spring a su posición base (cancelar/reordenar).
+                val yOffset = remember(cardId) { Animatable(0f) }
+                LaunchedEffect(isSwiping, baseY, swipeDy, isConfirmed) {
+                    if (isSwiping) {
+                        yOffset.snapTo(swipeDy)
+                    } else if (!isConfirmed) {
+                        yOffset.animateTo(baseY, springSpec)
+                    }
+                }
 
                 Box(
                     modifier = Modifier
@@ -992,14 +1014,13 @@ private fun HandRow(
                             }
                         )
                         .graphicsLayer {
-                            val baseY = -liftPx * lift - arcRaise
                             translationX = if (dragIndex == index) dragX - dragAnchor else x.value
-                            // Durante el swipe la carta sigue el dedo 1:1 (arriba y abajo);
-                            // la resolución solo se decide al soltar.
-                            translationY = if (isSwiping) {
-                                swipeDy
-                            } else {
-                                baseY - launch.value * launchDistancePx
+                            // Interacción unificada: la carta sigue el dedo en cada eje.
+                            // ↑ descarta (vuelo desde donde soltó), ↓/ninguno vuelve a la mano.
+                            translationY = when {
+                                isSwiping -> swipeDy
+                                isConfirmed -> confirmedFromY - launch.value * launchDistancePx
+                                else -> yOffset.value
                             }
                             rotationZ = if (isDragged || isSelected || isSwiping)
                                 0f else t * maxArcRotation
@@ -1019,7 +1040,7 @@ private fun HandRow(
                         skin = skin,
                         modifier = Modifier
                     )
-                    if (isSelected) {
+                    if (isSelected || isSwiping) {
                         Box(
                             Modifier
                                 .matchParentSize()

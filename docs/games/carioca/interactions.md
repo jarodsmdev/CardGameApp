@@ -9,8 +9,9 @@
 
 La interacción con la mano transmite una regla sencilla:
 
-> **Toca para seleccionar. Swipe arriba para jugar. Swipe abajo para cancelar.**
-> El doble tap es una alternativa para jugar (accesibilidad).
+> **Arrastra ↑ para jugar (descartar). Arrastra ↓ para cancelar.**
+> **Arrastra ←→ para ordenar. Toca para seleccionar.** El doble tap es una
+> alternativa para jugar (accesibilidad).
 
 Modelo conceptual:
 
@@ -21,8 +22,10 @@ Mano → Carta seleccionada → Mesa → Resolución de la acción
                                      → Otras acciones futuras
 ```
 
-La selección es **reversible hasta el momento de confirmar**: explorar una carta
-no ejecuta ninguna acción.
+La interacción es **una única pulsación y arrastre unificado**: se toca una
+carta sin soltar la pantalla y el eje del movimiento decide qué ocurre. La
+acción es **reversible hasta el momento de soltar**: subir y volver a bajar el
+dedo no confirma nada.
 
 ## 2. Estados de la carta
 
@@ -30,7 +33,8 @@ no ejecuta ninguna acción.
 |---|---|---|
 | **Normal** | Carta en la mano, en su posición del arco | Solapadas, sin resalte |
 | **Seleccionada** | Carta preparada para jugar | Elevada sobre el resto, borde dorado, vecinas separadas |
-| **Confirmada** | Carta enviada a la mesa | Sale volando hacia arriba y desaparece (→ resolución) |
+| **En arrastre** | Carta tocada sin soltar (cualquier carta) | Sigue el dedo 1:1, borde dorado |
+| **Confirmada** | Carta enviada a la mesa | Sale volando hacia arriba desde donde se soltó y desaparece (→ resolución) |
 | **Cancelada** | Selección revertida | Vuelve con spring a su posición original |
 
 ## 3. Gestos
@@ -44,30 +48,26 @@ no ejecuta ninguna acción.
 - Tocar otra carta **mueve** la selección.
 - Feedback háptico (`TextHandleMove`) al seleccionar.
 
-### 3.2 Swipe ↑ → confirmar / jugar
+### 3.2 Pulsar y arrastrar → interacción unificada
 
-Sobre la carta seleccionada, deslizar **hacia arriba** más de `40dp` y soltar:
+Tocar **cualquier carta** sin soltar la pantalla la "levanta" (borde dorado) y
+la hace seguir el dedo **1:1 en ambos ejes**. El eje dominante del arrastre
+decide la acción:
 
-- Mientras el dedo está sobre la pantalla, la carta **sigue el dedo 1:1**
-  (arriba y abajo): el gesto es **reversible** hasta que se suelta.
-- Al soltar por encima del umbral, **sale volando** hacia arriba (2,5 alturas de
-  carta, 300ms, fade-out) y se ejecuta la **resolución**.
-- Resolución actual: **descartar al pozo** (`DiscardAction`). El destino final
-  depende del contexto (ver §5).
+| Arrastre | Acción | Al soltar |
+|---|---|---|
+| **Horizontal** (`←→`) | **Ordenar** la baraja | La carta se desliza con spring a su nueva posición |
+| **Vertical ↑** (> `40dp`) | **Jugar / descartar** al pozo | Sale volando hacia arriba (desde donde se soltó) y se descarta |
+| **Vertical ↓** (> `28dp`) | **Cancelar** selección | Vuelve con spring a la mano, sin ejecutar acción |
+| Movimiento corto | Nada | Vuelve con spring a su posición (la selección se mantiene) |
 
-### 3.3 Swipe ↓ → cancelar
+Mientras el dedo está sobre la pantalla, el gesto es **reversible**: subir y
+bajar libremente, y solo al soltar se decide. Haptic `LongPress` al confirmar.
 
-Deslizar la carta seleccionada **hacia abajo** más de `28dp` y soltar:
-
-- Igual que en el swipe ↑, la carta **sigue el dedo 1:1** mientras no se suelte:
-  se puede subir y volver a bajar sin comprometerse.
-- Al soltar por encima del umbral, la carta **vuelve con spring** a su posición
-  original y la selección queda cancelada. No se ejecuta ninguna acción.
-
-### 3.4 Doble tap → jugar
+### 3.3 Doble tap → jugar
 
 Dos taps sobre la **misma carta** dentro de `300ms` equivalen a confirmar
-(se envía a la mesa). Alternativa de accesibilidad al swipe ↑.
+(se envía a la mesa). Alternativa de accesibilidad al arrastre ↑.
 
 ### 3.5 Arrastre horizontal → ordenar
 
@@ -77,9 +77,11 @@ selección activa.
 
 ## 4. Cuándo está disponible
 
-- La selección solo se puede iniciar en **tu turno** y en la fase **Acciones**
-  (tras robar). Fuera de ese momento los taps no tienen efecto y cualquier
-  selección activa se limpia automáticamente.
+- **Inicio de turno (fase Robar):** `ActionBar` muestra **"Roba una carta: toca
+  el mazo o el pozo"** para indicar al jugador que debe robar.
+- La **selección** y el arrastre de la mano solo se pueden iniciar en **tu
+  turno** y en la fase **Acciones** (tras robar). Fuera de ese momento los taps
+  no tienen efecto y cualquier selección activa se limpia automáticamente.
 
 ## 5. Reutilización para futuras acciones
 
