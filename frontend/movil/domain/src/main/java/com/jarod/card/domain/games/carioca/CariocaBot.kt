@@ -63,7 +63,11 @@ object CariocaBot {
         val ownMelds = state.table[playerId]!!
         for ((i, meld) in ownMelds.withIndex()) {
             for (card in hand) {
-                if (MeldValidator.validate(meld.cards + card, state.ruleset) != null) {
+                // Usar la misma validación que el motor (validateLayOff). Antes se
+                // usaba MeldValidator.validate(meld + card), que aceptaba el JOKER
+                // en cualquier posición y sugería jugadas que luego el motor
+                // rechazaba (bug TODO.md: joker que no puede usarse ni descartarse).
+                if (MeldValidator.validateLayOff(meld, card, state.ruleset) != null) {
                     return LayOffAction(playerId, card.id, playerId, i)
                 }
             }
@@ -73,7 +77,7 @@ object CariocaBot {
             if (owner == playerId) continue
             for ((i, meld) in melds.withIndex()) {
                 for (card in hand) {
-                    if (MeldValidator.validate(meld.cards + card, state.ruleset) != null) {
+                    if (MeldValidator.validateLayOff(meld, card, state.ruleset) != null) {
                         return LayOffAction(playerId, card.id, owner, i)
                     }
                 }
