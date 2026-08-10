@@ -1,6 +1,7 @@
 package com.jarod.card.features.game
 
 import android.graphics.BlurMaskFilter
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -15,6 +16,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -63,6 +65,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -122,6 +125,7 @@ import kotlin.math.roundToInt
 
 private val DiscardBadgeRed = Color(0xFFC62828)
 private val PlayedCheckGreen = Color(0xFF2E7D32)
+private val HandSelectionGold = Color(0xFFC9A227)
 private val TimeoutBorderRed = Color(0xFFD32F2F)
 private val MedalGold = Color(0xFFC9A227)
 private val MedalSilver = Color(0xFF9CA3AF)
@@ -368,6 +372,12 @@ private fun CariocaBoard(
     val round = st.ruleset.rounds[st.roundIndex]
     val human = st.hands[humanId] ?: emptyList()
 
+    var selectedCardId by remember { mutableStateOf<String?>(null) }
+    val canSelect = myTurn && st.stage == Stage.ACTIONS
+    LaunchedEffect(canSelect) {
+        if (!canSelect && selectedCardId != null) selectedCardId = null
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
         TopInfo(st, round, myTurn, botsThinking, error, roomId, secondsLeft)
 
@@ -381,11 +391,15 @@ private fun CariocaBoard(
             TableSection(st, humanId, skin)
         }
 
-        ActionBar(st, humanId, myTurn, onMeld, onLayOff)
+        ActionBar(st, humanId, myTurn, selectedCardId, onMeld, onLayOff)
 
         StockDiscardRow(st, myTurn, skin, onDrawStock, onDrawDiscard)
 
-        HandRow(st, humanId, myTurn, skin, onDiscard)
+        HandRow(
+            st, humanId, myTurn, skin, onDiscard,
+            selectedCardId = selectedCardId,
+            onSelectionChange = { selectedCardId = it }
+        )
 
         if (human.isEmpty()) {
             Text(
@@ -671,6 +685,7 @@ private fun ActionBar(
     st: CariocaState,
     humanId: PlayerId,
     myTurn: Boolean,
+    selectedCardId: String?,
     onMeld: () -> Unit,
     onLayOff: () -> Unit
 ) {
@@ -682,7 +697,10 @@ private fun ActionBar(
                 CariocaBot.findMeldForRound(human, round) != null
             val canLayOff = CariocaBot.findLayOff(st, humanId) != null
             Text(
-                text = "Arrastra una carta para ordenar · toca para descartar",
+                text = if (selectedCardId != null)
+                    "Swipe ↑ para descartar · Swipe ↓ para cancelar · Doble tap para descartar"
+                else
+                    "Toca para seleccionar · arrastra para ordenar",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -713,7 +731,9 @@ private fun HandRow(
     humanId: PlayerId,
     myTurn: Boolean,
     skin: CardSkin,
-    onDiscard: (String) -> Unit
+    onDiscard: (String) -> Unit,
+    selectedCardId: String?,
+    onSelectionChange: (String?) -> Unit
 ) {
     val hand = st.hands[humanId] ?: emptyList()
     if (hand.isEmpty()) return
@@ -726,6 +746,17 @@ private fun HandRow(
         val added = ids.filter { it !in order }
         order = kept + added
     }
+
+    LaunchedEffect(idsSet, selectedCardId) {
+        if (selectedCardId != null && selectedCardId !in idsSet) onSelectionChange(null)
+    }
+
+    val currentSelectedId by rememberUpdatedState(selectedCardId)
+    var swipingCardId by remember { mutableStateOf<String?>(null) }
+    var swipeDy by remember { mutableStateOf(0f) }
+    var confirmedCardId by remember { mutableStateOf<String?>(null) }
+    var lastTapCardId by remember { mutableStateOf<String?>(null) }
+    var lastTapTime by remember { mutableStateOf(0L) }
 
     val cardWidth = 44.dp
     val cardHeight = 62.dp
@@ -749,6 +780,11 @@ private fun HandRow(
         val liftPx = with(density) { liftHeight.toPx() }
         val shadowPx = with(density) { 16.dp.toPx() }
         val arcRaisePx = with(density) { 6.dp.toPx() }
+        val selectionGapPx = with(density) { 8.dp.toPx() }
+        val confirmUpPx = with(density) { 40.dp.toPx() }
+        val cancelDownPx = with(density) { 28.dp.toPx() }
+        val launchDistancePx = cardHeightPx * 2.5f
+        val doubleTapWindowMs = 300L
         val maxArcRotation = 4f
         val availableWidth = maxWidth
         val maxWidthPx = with(density) { availableWidth.toPx() }
@@ -788,24 +824,74 @@ private fun HandRow(
                         val cardId = if (pressIndex >= 0) order[pressIndex] else null
                         val cardLeft = if (pressIndex >= 0) startX + pressIndex * stepPx else 0f
                         var dragging = false
+                        var swiping = false
+                        swipingCardId = null
+                        swipeDy = 0f
                         while (true) {
                             val e = awaitPointerEvent()
                             val c = e.changes.firstOrNull { it.id == pointer } ?: break
                             if (!c.pressed) {
-                                if (pressIndex >= 0 && !dragging && discardEnabled) onDiscard(cardId!!)
+                                if (pressIndex >= 0 && !dragging && !swiping && discardEnabled) {
+                                    val now = SystemClock.uptimeMillis()
+                                    val isDoubleTap = cardId == lastTapCardId &&
+                                        now - lastTapTime <= doubleTapWindowMs
+                                    if (isDoubleTap) {
+                                        confirmedCardId = cardId
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    } else {
+                                        val selectingNew = cardId != currentSelectedId
+                                        onSelectionChange(if (selectingNew) cardId else null)
+                                        if (selectingNew) {
+                                            haptics.performHapticFeedback(
+                                                HapticFeedbackType.TextHandleMove
+                                            )
+                                        }
+                                    }
+                                    lastTapCardId = cardId
+                                    lastTapTime = now
+                                } else if (swiping) {
+                                    when (classifyHandSwipe(
+                                        0f, swipeDy, slop, confirmUpPx, cancelDownPx
+                                    )) {
+                                        HandSwipe.UP -> {
+                                            confirmedCardId = cardId
+                                            haptics.performHapticFeedback(
+                                                HapticFeedbackType.LongPress
+                                            )
+                                        }
+                                        HandSwipe.DOWN -> {
+                                            onSelectionChange(null)
+                                            haptics.performHapticFeedback(
+                                                HapticFeedbackType.TextHandleMove
+                                            )
+                                        }
+                                        HandSwipe.NONE -> Unit
+                                    }
+                                }
                                 break
                             }
                             if (pressIndex < 0) break
-                            if (!dragging) {
+                            if (!dragging && !swiping) {
                                 val dx = c.position.x - down.position.x
                                 val dy = c.position.y - down.position.y
-                                if (abs(dx) > slop || abs(dy) > slop) {
+                                if (isVerticalDominant(dx, dy, slop) &&
+                                    discardEnabled && cardId == currentSelectedId
+                                ) {
+                                    swiping = true
+                                    swipingCardId = cardId
+                                    swipeDy = dy
+                                    c.consume()
+                                } else if (abs(dx) > slop || abs(dy) > slop) {
+                                    if (currentSelectedId != null) onSelectionChange(null)
                                     dragging = true
                                     dragIndex = pressIndex
                                     dragAnchor = down.position.x - cardLeft
                                     dragX = down.position.x
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 }
+                            } else if (swiping) {
+                                swipeDy = c.position.y - down.position.y
+                                c.consume()
                             } else {
                                 dragX = c.position.x
                                 if (n > 1) {
@@ -826,15 +912,32 @@ private fun HandRow(
                             }
                         }
                         dragIndex = -1
+                        swipingCardId = null
+                        swipeDy = 0f
                     }
                 }
         )
+
+        val selIndex = selectedCardId?.let { order.indexOf(it) } ?: -1
 
         order.forEachIndexed { index, cardId ->
             key(cardId) {
                 val card = hand.first { it.id == cardId }
                 val isDragged = dragIndex == index
-                val slotTarget = startX + index * stepPx
+                val isSelected = cardId == selectedCardId
+                val isSwiping = cardId == swipingCardId
+                val isConfirmed = cardId == confirmedCardId
+
+                // La carta seleccionada separa ligeramente a sus vecinas.
+                var slotTarget = startX + index * stepPx
+                if (selIndex >= 0) {
+                    slotTarget += when (index) {
+                        selIndex - 1 -> -selectionGapPx
+                        selIndex + 1 -> selectionGapPx
+                        else -> 0f
+                    }
+                }
+
                 val x = remember(cardId) { Animatable(0f) }
                 var initDone by remember(cardId) { mutableStateOf(false) }
 
@@ -857,33 +960,69 @@ private fun HandRow(
                 }
 
                 val lift by animateFloatAsState(
-                    targetValue = if (isDragged) 1f else 0f,
+                    targetValue = if (isDragged || isSelected || isSwiping) 1f else 0f,
                     animationSpec = springSpec,
                     label = "lift"
                 )
 
-                val t = if (n > 1) (2f * index - (n - 1)) / (n - 1) else 0f
-                val arcRaise = if (isDragged) 0f else arcRaisePx * (1f - t * t)
+                // Al confirmar (swipe ↑ o doble tap) la carta sale volando hacia la mesa
+                // y, al terminar, se ejecuta la acción (descartar al pozo).
+                val launch = remember(cardId) { Animatable(0f) }
+                LaunchedEffect(isConfirmed) {
+                    if (isConfirmed) {
+                        launch.animateTo(1f, tween(300, easing = FastOutSlowInEasing))
+                        confirmedCardId = null
+                        onSelectionChange(null)
+                        onDiscard(cardId)
+                    }
+                }
 
-                CardFace(
-                    card = card,
-                    width = cardWidth,
-                    height = cardHeight,
-                    skin = skin,
+                val t = if (n > 1) (2f * index - (n - 1)) / (n - 1) else 0f
+                val arcRaise = if (isDragged || isSelected || isSwiping)
+                    0f else arcRaisePx * (1f - t * t)
+
+                Box(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .zIndex(if (isDragged) 1f else 0f)
+                        .zIndex(
+                            when {
+                                isConfirmed -> 2f
+                                isDragged || isSelected || isSwiping -> 1f
+                                else -> 0f
+                            }
+                        )
                         .graphicsLayer {
+                            val baseY = -liftPx * lift - arcRaise
                             translationX = if (dragIndex == index) dragX - dragAnchor else x.value
-                            translationY = -liftPx * lift - arcRaise
-                            rotationZ = if (isDragged) 0f else t * maxArcRotation
+                            translationY = baseY +
+                                (if (isSwiping) swipeDy else 0f) -
+                                launch.value * launchDistancePx
+                            rotationZ = if (isDragged || isSelected || isSwiping)
+                                0f else t * maxArcRotation
                             transformOrigin = TransformOrigin(0.5f, 1f)
-                            scaleX = 1f + 0.07f * lift
-                            scaleY = 1f + 0.07f * lift
+                            val extra = 0.12f * launch.value
+                            scaleX = 1f + 0.07f * lift + extra
+                            scaleY = 1f + 0.07f * lift + extra
+                            alpha = 1f - launch.value
                             shadowElevation = shadowPx * lift
                             shape = RoundedCornerShape(6.dp)
                         }
-                )
+                ) {
+                    CardFace(
+                        card = card,
+                        width = cardWidth,
+                        height = cardHeight,
+                        skin = skin,
+                        modifier = Modifier
+                    )
+                    if (isSelected) {
+                        Box(
+                            Modifier
+                                .matchParentSize()
+                                .border(2.dp, HandSelectionGold, RoundedCornerShape(6.dp))
+                        )
+                    }
+                }
             }
         }
     }
