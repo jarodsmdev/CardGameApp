@@ -48,7 +48,8 @@ no ejecuta ninguna acción.
 
 Sobre la carta seleccionada, deslizar **hacia arriba** más de `40dp` y soltar:
 
-- La carta sigue el dedo durante el gesto.
+- Mientras el dedo está sobre la pantalla, la carta **sigue el dedo 1:1**
+  (arriba y abajo): el gesto es **reversible** hasta que se suelta.
 - Al soltar por encima del umbral, **sale volando** hacia arriba (2,5 alturas de
   carta, 300ms, fade-out) y se ejecuta la **resolución**.
 - Resolución actual: **descartar al pozo** (`DiscardAction`). El destino final
@@ -58,8 +59,10 @@ Sobre la carta seleccionada, deslizar **hacia arriba** más de `40dp` y soltar:
 
 Deslizar la carta seleccionada **hacia abajo** más de `28dp` y soltar:
 
-- La carta **vuelve con spring** a su posición original y la selección queda
-  cancelada. No se ejecuta ninguna acción.
+- Igual que en el swipe ↑, la carta **sigue el dedo 1:1** mientras no se suelte:
+  se puede subir y volver a bajar sin comprometerse.
+- Al soltar por encima del umbral, la carta **vuelve con spring** a su posición
+  original y la selección queda cancelada. No se ejecuta ninguna acción.
 
 ### 3.4 Doble tap → jugar
 

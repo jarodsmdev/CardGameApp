@@ -994,9 +994,13 @@ private fun HandRow(
                         .graphicsLayer {
                             val baseY = -liftPx * lift - arcRaise
                             translationX = if (dragIndex == index) dragX - dragAnchor else x.value
-                            translationY = baseY +
-                                (if (isSwiping) swipeDy else 0f) -
-                                launch.value * launchDistancePx
+                            // Durante el swipe la carta sigue el dedo 1:1 (arriba y abajo);
+                            // la resolución solo se decide al soltar.
+                            translationY = if (isSwiping) {
+                                swipeDy
+                            } else {
+                                baseY - launch.value * launchDistancePx
+                            }
                             rotationZ = if (isDragged || isSelected || isSwiping)
                                 0f else t * maxArcRotation
                             transformOrigin = TransformOrigin(0.5f, 1f)
