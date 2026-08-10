@@ -83,6 +83,20 @@ Dos taps sobre la **misma carta** dentro de `300ms` equivalen a confirmar
   turno** y en la fase **Acciones** (tras robar). Fuera de ese momento los taps
   no tienen efecto y cualquier selección activa se limpia automáticamente.
 
+### 4.1 Hints contextuales (fase Acciones)
+
+El `ActionBar` es contextual y guía la acción del momento en lugar de explicar
+todos los gestos de una vez:
+
+| Situación | Texto |
+|---|---|
+| Sin selección | "Descarta una carta para terminar tu turno: arrastra hacia arriba o toca y haz doble tap." |
+| Carta seleccionada | "Arrastra hacia arriba para descartarla · doble tap también descarta" |
+| **Durante el arrastre** | "Arrastra hacia arriba para descartar · hacia abajo para cancelar" |
+
+Así el jugador recibe información extra solo cuando está haciendo el gesto, y al
+cancelar simplemente vuelve al mensaje que corresponde a la situación.
+
 ## 5. Reutilización para futuras acciones
 
 La mecánica no está atada a "descartar": la confirmación dispara un callback
@@ -93,8 +107,9 @@ y hacia cualquier otra zona de juego en el futuro.
 ## 6. Implementación
 
 - `GameScreen.kt` — `HandRow` (estado de selección, gestos y render),
-  `CariocaBoard` (estado `selectedCardId` compartido con `ActionBar`),
-  `ActionBar` (hint contextual según haya o no selección).
+  `CariocaBoard` (estado `selectedCardId` compartido con `ActionBar`,
+  `dragActive`), `ActionBar` (hint contextual según fase, arrastre y
+  selección).
 - `HandInteraction.kt` — clasificador puro de gestos (`isVerticalDominant`,
   `classifyHandSwipe`), probado en `HandInteractionTest`.
 - Umbrales (px/dp): touch slop del sistema, confirm ↑ `40dp`, cancel ↓ `28dp`,

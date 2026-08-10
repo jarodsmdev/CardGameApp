@@ -63,6 +63,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -93,6 +94,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -378,6 +380,9 @@ private fun CariocaBoard(
         if (!canSelect && selectedCardId != null) selectedCardId = null
     }
 
+    // Estado del arrastre para hints contextuales de ActionBar.
+    var dragActive by remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
         TopInfo(st, round, myTurn, botsThinking, error, roomId, secondsLeft)
 
@@ -391,14 +396,15 @@ private fun CariocaBoard(
             TableSection(st, humanId, skin)
         }
 
-        ActionBar(st, humanId, myTurn, selectedCardId, onMeld, onLayOff)
+        ActionBar(st, humanId, myTurn, selectedCardId, dragActive, onMeld, onLayOff)
 
         StockDiscardRow(st, myTurn, skin, onDrawStock, onDrawDiscard)
 
         HandRow(
             st, humanId, myTurn, skin, onDiscard,
             selectedCardId = selectedCardId,
-            onSelectionChange = { selectedCardId = it }
+            onSelectionChange = { selectedCardId = it },
+            onDragActiveChange = { dragActive = it }
         )
 
         if (human.isEmpty()) {
@@ -419,6 +425,24 @@ private fun CariocaBoard(
 // Secciones
 // ──────────────────────────────────────────────────────────────
 
+/** Tiempo transcurrido de la ronda actual (se reinicia con cada ronda). */
+@Composable
+private fun rememberRoundElapsedText(st: CariocaState): String {
+    val start = remember(st.roundIndex) { SystemClock.elapsedRealtime() }
+    var secs by remember(st.roundIndex) { mutableIntStateOf(0) }
+    LaunchedEffect(st.roundIndex, st.phase) {
+        if (st.phase == CariocaPhase.PLAYING) {
+            while (true) {
+                secs = ((SystemClock.elapsedRealtime() - start) / 1000).toInt()
+                delay(1000)
+            }
+        } else {
+            secs = ((SystemClock.elapsedRealtime() - start) / 1000).toInt()
+        }
+    }
+    return formatClock(secs * 1000L)
+}
+
 @Composable
 private fun TopInfo(
     st: CariocaState,
@@ -429,51 +453,77 @@ private fun TopInfo(
     roomId: String,
     secondsLeft: Int
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column {
-            Text(
-                text = "Ronda ${st.roundIndex + 1}/${st.ruleset.rounds.size} · ${describeRound(round)}",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Text(text = "Sala $roomId", style = MaterialTheme.typography.bodySmall)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "Vuelta ${st.laps + 1}",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Spacer(Modifier.width(12.dp))
-            when {
-                botsThinking -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Jugando…", style = MaterialTheme.typography.bodySmall)
-                }
-                myTurn -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "Tu turno",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    if (secondsLeft >= 0) {
+    val roundElapsedText = rememberRoundElapsedText(st)
+    Column(Modifier.fillMaxWidth()) {
+        Text(
+            text = "Ronda ${st.roundIndex + 1}/${st.ruleset.rounds.size} · ${describeRound(round)}",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(Modifier.height(2.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = "Sala $roomId", style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    Icons.Filled.AccessTime,
+                    contentDescription = null,
+                    modifier = Modifier.size(12.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.width(2.dp))
+                Text(
+                    text = roundElapsedText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.Loop,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = "${st.laps + 1}",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(12.dp))
+                when {
+                    botsThinking -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(6.dp))
+                        Text("Jugando…", style = MaterialTheme.typography.bodySmall)
+                    }
+                    myTurn -> Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "· ${secondsLeft}s",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = if (secondsLeft <= st.ruleset.turnTimeout.warningAtSeconds) {
-                                MaterialTheme.colorScheme.error
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            }
+                            text = "Tu turno",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold
                         )
+                        if (secondsLeft >= 0) {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "· ${secondsLeft}s",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (secondsLeft <= st.ruleset.turnTimeout.warningAtSeconds) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -686,6 +736,7 @@ private fun ActionBar(
     humanId: PlayerId,
     myTurn: Boolean,
     selectedCardId: String?,
+    dragActive: Boolean,
     onMeld: () -> Unit,
     onLayOff: () -> Unit
 ) {
@@ -696,11 +747,15 @@ private fun ActionBar(
             val canMeld = humanId !in st.meldedThisRound &&
                 CariocaBot.findMeldForRound(human, round) != null
             val canLayOff = CariocaBot.findLayOff(st, humanId) != null
+            val hint = when {
+                dragActive -> "Arrastra hacia arriba para descartar · hacia abajo para cancelar"
+                selectedCardId != null ->
+                    "Arrastra hacia arriba o doble tap para descartar"
+                else ->
+                    "Descarta una carta para terminar tu turno."
+            }
             Text(
-                text = if (selectedCardId != null)
-                    "↑ descartar · ↓ cancelar · doble tap descartar"
-                else
-                    "Arrastra una carta: ←→ ordenar · ↑ descartar · ↓ cancelar · toca selecciona",
+                text = hint,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -739,10 +794,13 @@ private fun HandRow(
     skin: CardSkin,
     onDiscard: (String) -> Unit,
     selectedCardId: String?,
-    onSelectionChange: (String?) -> Unit
+    onSelectionChange: (String?) -> Unit,
+    onDragActiveChange: (Boolean) -> Unit
 ) {
     val hand = st.hands[humanId] ?: emptyList()
     if (hand.isEmpty()) return
+
+    val currentOnDragActiveChange by rememberUpdatedState(onDragActiveChange)
 
     var order by remember { mutableStateOf<List<String>>(emptyList()) }
     val ids = hand.map { it.id }
@@ -899,6 +957,7 @@ private fun HandRow(
                                 val dy = c.position.y - down.position.y
                                 if (abs(dx) > slop || abs(dy) > slop) {
                                     dragging = true
+                                    currentOnDragActiveChange(true)
                                     dragIndex = pressIndex
                                     dragAnchor = down.position.x - cardLeft
                                     dragAnchorY = down.position.y - pressVisualY(pressIndex, cardId)
@@ -936,6 +995,7 @@ private fun HandRow(
                         dragIndex = -1
                         dragX = 0f
                         dragY = 0f
+                        if (dragging) currentOnDragActiveChange(false)
                     }
                 }
         )
@@ -1004,8 +1064,10 @@ private fun HandRow(
 
                 // Desplazamiento vertical: mientras se arrastra sigue al dedo 1:1;
                 // al soltar vuelve con spring a su posición base (cancelar/reordenar).
+                // baseY en las claves: si cambia al deseleccionar (lift → 0), la carta
+                // vuelve a alinearse con las demás y no se queda levantada.
                 val yOffset = remember(cardId) { Animatable(0f) }
-                LaunchedEffect(isDragged, dragY, dragAnchorY, isConfirmed) {
+                LaunchedEffect(isDragged, dragY, dragAnchorY, isConfirmed, baseY) {
                     if (isDragged) {
                         yOffset.snapTo(dragY - dragAnchorY)
                     } else if (!isConfirmed) {
