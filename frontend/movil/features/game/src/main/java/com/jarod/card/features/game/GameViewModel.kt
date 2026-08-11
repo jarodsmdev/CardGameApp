@@ -22,6 +22,8 @@ import com.jarod.card.domain.games.carioca.Stage
 import com.jarod.card.domain.games.carioca.StartNextRound
 import com.jarod.card.features.game.cardskin.CardSkin
 import com.jarod.card.features.game.cardskin.CardSkinStore
+import com.jarod.card.features.game.settings.DominantHand
+import com.jarod.card.features.game.settings.DominantHandStore
 import com.jarod.card.features.game.stats.CumulativeStats
 import com.jarod.card.features.game.stats.GameStats
 import com.jarod.card.features.game.stats.GameStatsStore
@@ -46,6 +48,8 @@ data class GameUiState(
     val gameStats: GameStats? = null,
     val cumulativeStats: CumulativeStats = CumulativeStats(),
     val skin: CardSkin = CardSkin(),
+    /** Mano dominante: posiciona el mazo/pozo al lado de la mano principal. */
+    val dominantHand: DominantHand = DominantHand.RIGHT,
     /** Info de fin de ronda para mostrar diálogo (ganador, puntos, nº ronda). */
     val roundEndInfo: RoundEndInfo? = null,
     /** Resumen congelado de la ronda terminada (duración y turnos), para el scoreboard. */
@@ -62,10 +66,13 @@ data class RoundEndInfo(
 class GameViewModel @Inject constructor(
     private val dispatchers: DispatchersProvider,
     private val skinStore: CardSkinStore,
-    private val statsStore: GameStatsStore
+    private val statsStore: GameStatsStore,
+    private val handStore: DominantHandStore
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(GameUiState(skin = skinStore.read()))
+    private val _uiState = MutableStateFlow(
+        GameUiState(skin = skinStore.read(), dominantHand = handStore.read())
+    )
     val uiState: StateFlow<GameUiState> = _uiState.asStateFlow()
 
     private val statsTracker = GameStatsTracker()

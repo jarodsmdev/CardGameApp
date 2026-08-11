@@ -11,7 +11,7 @@ import androidx.navigation.navArgument
 import com.jarod.card.features.auth.LoginScreen
 import com.jarod.card.features.friends.FriendsScreen
 import com.jarod.card.features.game.GameScreen
-import com.jarod.card.features.game.cardskin.CardDesignScreen
+import com.jarod.card.features.game.settings.SettingsScreen
 import com.jarod.card.features.lobby.LobbyScreen
 
 object AppRoute {
@@ -45,7 +45,7 @@ fun AppNavHost(modifier: Modifier = Modifier) {
             )
         }
         composable(AppRoute.SETTINGS) {
-            CardDesignScreen(onBack = { navController.popBackStack() })
+            SettingsScreen(onBack = { navController.popBackStack() })
         }
         composable(
             route = AppRoute.GAME,

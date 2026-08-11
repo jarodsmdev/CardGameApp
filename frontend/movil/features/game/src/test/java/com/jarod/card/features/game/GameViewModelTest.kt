@@ -12,6 +12,8 @@ import com.jarod.card.features.game.cardskin.CardSkin
 import com.jarod.card.features.game.cardskin.CardSkinStore
 import com.jarod.card.features.game.cardskin.FrontDesign
 import com.jarod.card.features.game.cardskin.JokerStyle
+import com.jarod.card.features.game.settings.DominantHand
+import com.jarod.card.features.game.settings.DominantHandStore
 import com.jarod.card.features.game.stats.CumulativeStats
 import com.jarod.card.features.game.stats.GameStatsStore
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -44,6 +46,13 @@ class GameViewModelTest {
         }
     }
 
+    private class FakeHandStore(var stored: DominantHand = DominantHand.RIGHT) : DominantHandStore {
+        override fun read(): DominantHand = stored
+        override fun save(hand: DominantHand) {
+            stored = hand
+        }
+    }
+
     private fun provider(): DispatchersProvider =
         DispatchersProvider(main = mainRule.testDispatcher, default = mainRule.testDispatcher, io = mainRule.testDispatcher)
 
@@ -54,8 +63,12 @@ class GameViewModelTest {
         )
     )
 
-    private fun newViewModel(ruleset: CariocaRuleset = shortRules(), seed: Long = 999L): GameViewModel {
-        val vm = GameViewModel(provider(), FakeSkinStore(), FakeStatsStore())
+    private fun newViewModel(
+        ruleset: CariocaRuleset = shortRules(),
+        seed: Long = 999L,
+        handStore: FakeHandStore = FakeHandStore()
+    ): GameViewModel {
+        val vm = GameViewModel(provider(), FakeSkinStore(), FakeStatsStore(), handStore)
         vm.startGame(ruleset, seed)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         return vm
@@ -83,16 +96,25 @@ class GameViewModelTest {
             front = FrontDesign.DORADO,
             joker = JokerStyle.ORO
         )
-        val vm = GameViewModel(provider(), FakeSkinStore(saved), FakeStatsStore())
+        val vm = GameViewModel(provider(), FakeSkinStore(saved), FakeStatsStore(), FakeHandStore())
         vm.startGame(shortRules(), 999L)
         advance()
         assertEquals(saved, vm.uiState.value.skin)
     }
 
     @Test
+    fun `startGame expone la mano dominante guardada del almacén (default derecha)`() {
+        val right = newViewModel()
+        assertEquals(DominantHand.RIGHT, right.uiState.value.dominantHand)
+
+        val left = newViewModel(handStore = FakeHandStore(DominantHand.LEFT))
+        assertEquals(DominantHand.LEFT, left.uiState.value.dominantHand)
+    }
+
+    @Test
     fun `al terminar la partida se generan stats y se acumulan en el almacén`() {
         val statsStore = FakeStatsStore()
-        val vm = GameViewModel(provider(), FakeSkinStore(), statsStore)
+        val vm = GameViewModel(provider(), FakeSkinStore(), statsStore, FakeHandStore())
         vm.startGame(shortRules(), 999L)
         advance()
         playUntilEnd(vm)

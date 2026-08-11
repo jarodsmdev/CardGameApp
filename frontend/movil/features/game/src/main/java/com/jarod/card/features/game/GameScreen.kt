@@ -118,6 +118,7 @@ import com.jarod.card.domain.games.carioca.ComboType
 import com.jarod.card.domain.games.carioca.Meld
 import com.jarod.card.domain.games.carioca.Stage
 import com.jarod.card.features.game.cardskin.CardSkin
+import com.jarod.card.features.game.settings.DominantHand
 import com.jarod.card.features.game.stats.CumulativeStats
 import com.jarod.card.features.game.stats.GameStats
 import com.jarod.card.features.game.stats.RoundStats
@@ -302,6 +303,7 @@ fun GameScreen(
                 error = ui.error,
                 roomId = roomId,
                 skin = ui.skin,
+                dominantHand = ui.dominantHand,
                 secondsLeft = ui.secondsLeft,
                 onDrawStock = viewModel::drawFromStock,
                 onDrawDiscard = viewModel::drawFromDiscard,
@@ -364,6 +366,7 @@ private fun CariocaBoard(
     error: String?,
     roomId: String,
     skin: CardSkin,
+    dominantHand: DominantHand,
     secondsLeft: Int,
     onDrawStock: () -> Unit,
     onDrawDiscard: () -> Unit,
@@ -400,7 +403,7 @@ private fun CariocaBoard(
 
         ActionBar(st, humanId, myTurn, selectedCardId, dragActive, onMeld, onLayOff)
 
-        StockDiscardRow(st, myTurn, skin, onDrawStock, onDrawDiscard)
+        StockDiscardRow(st, myTurn, skin, dominantHand, onDrawStock, onDrawDiscard)
 
         HandRow(
             st, humanId, myTurn, skin, onDiscard, onCanDiscard,
@@ -672,6 +675,7 @@ private fun StockDiscardRow(
     st: CariocaState,
     myTurn: Boolean,
     skin: CardSkin,
+    dominantHand: DominantHand,
     onDrawStock: () -> Unit,
     onDrawDiscard: () -> Unit
 ) {
@@ -680,7 +684,12 @@ private fun StockDiscardRow(
     val canDrawDiscard = myTurn && st.stage == Stage.DRAW && st.discard.isNotEmpty()
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        // El grupo mazo+pozo se posiciona según la mano dominante, manteniendo
+        // intacta la relación y el espaciado entre ambos elementos.
+        horizontalArrangement = Arrangement.spacedBy(
+            16.dp,
+            if (dominantHand == DominantHand.LEFT) Alignment.Start else Alignment.End
+        ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Mazo
