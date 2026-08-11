@@ -115,15 +115,41 @@ class JokerLayOffToTripleTest {
 
     @Test
     fun `el bot sugiere el JOKER como lay-off al quedar en la mano con una carta descartable`() {
-        val st = stateCon2yJokerEnManoDeP1()
+        var st = stateCon2yJokerEnManoDeP1()
         val p1 = players[0]
+        val jkr = st.hands[p1]!!.first { it is JokerCard }
+        val two = st.hands[p1]!!.first { it !is JokerCard }
 
         val suggested = CariocaBot.findLayOff(st, p1)
         assertNotNull("Debe existir un lay-off válido (el JOKER sobre un trío)", suggested)
-        assertTrue(
-            "El lay-off sugerido debe usar el JOKER, no la carta descartable",
-            suggested!!.cardId == st.hands[p1]!!.first { it is JokerCard }.id
-        )
+        assertEquals("El lay-off sugerido usa el JOKER", jkr.id, suggested!!.cardId)
+        assertTrue("El motor acepta la jugada sugerida", CariocaGame.canPerform(st, suggested).valid)
+
+        // Resolución del bug: aplicar el lay-off sugerido y descartar la carta
+        // restante deja la mano vacía → p1 gana la ronda.
+        st = CariocaGame.perform(st, suggested).state
+        assertEquals("Tras el lay-off queda solo el 2", listOf(two), st.hands[p1])
+        st = CariocaGame.perform(st, DiscardAction(p1, two.id)).state
+        assertEquals(CariocaPhase.ROUND_END, st.phase)
+        assertEquals("p1 gana la ronda", 1, st.roundsWon[p1])
+    }
+
+    @Test
+    fun `con la mano solo con un JOKER, el bot sugiere el lay-off que vacia la mano y gana`() {
+        var st = stateCon2yJokerEnManoDeP1()
+        val p1 = players[0]
+        val jkr = st.hands[p1]!!.first { it is JokerCard }
+        st = st.copy(hands = st.hands + (p1 to listOf(jkr)))
+
+        val suggested = CariocaBot.findLayOff(st, p1)
+        assertNotNull("Con solo el JOKER debe sugerir su lay-off", suggested)
+        assertEquals(jkr.id, suggested!!.cardId)
+
+        st = CariocaGame.perform(st, suggested).state
+        assertTrue("La mano queda vacía", st.hands[p1]!!.isEmpty())
+        assertTrue("El JOKER queda en la mesa", st.table[p1]!!.any { it.cardIds().contains(jkr.id) })
+        assertEquals(CariocaPhase.ROUND_END, st.phase)
+        assertEquals("p1 gana la ronda", 1, st.roundsWon[p1])
     }
 
     @Test

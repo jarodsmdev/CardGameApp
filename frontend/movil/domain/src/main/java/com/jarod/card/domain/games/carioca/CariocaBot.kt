@@ -79,7 +79,10 @@ object CariocaBot {
             val newMeld = MeldValidator.validateLayOff(meld, card, state.ruleset, position) ?: return
             val future = rest.count { MeldValidator.validateLayOff(newMeld, it, state.ruleset) != null }
             val natural = if (card is PlayingCard) 1 else 0
-            if (future > bestFuture || (future == bestFuture && natural > bestNatural)) {
+            // Cualquier lay-off válido es mejor que ninguno: si aún no hay candidato
+            // se acepta el primero (bug TODO.md — sin esto, un JOKER que deja future=0
+            // y natural=0 nunca se seleccionaba y la jugada ganadora no se ofrecía).
+            if (best == null || future > bestFuture || (future == bestFuture && natural > bestNatural)) {
                 bestFuture = future
                 bestNatural = natural
                 best = LayOffAction(playerId, card.id, owner, i, position)
