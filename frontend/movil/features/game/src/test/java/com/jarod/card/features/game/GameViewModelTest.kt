@@ -6,6 +6,7 @@ import com.jarod.card.domain.games.carioca.CariocaRound
 import com.jarod.card.domain.games.carioca.CariocaRuleset
 import com.jarod.card.domain.games.carioca.ComboSpec
 import com.jarod.card.domain.games.carioca.ComboType
+import com.jarod.card.domain.games.carioca.LayOffAction
 import com.jarod.card.domain.games.carioca.Stage
 import com.jarod.card.features.game.cardskin.BackDesign
 import com.jarod.card.features.game.cardskin.CardSkin
@@ -22,6 +23,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -194,6 +196,42 @@ class GameViewModelTest {
         assertTrue("Una carta normal sí se puede descartar", vm.canDiscard(card.id))
         vm.discard(card.id)
         assertTrue("El turno pasa al siguiente jugador", vm.uiState.value.state!!.currentPlayer != human)
+    }
+
+    @Test
+    fun `proposeLayOff devuelve null fuera del turno del humano`() {
+        val vm = newViewModel()
+        assertNull(vm.proposeLayOff())
+    }
+
+    @Test
+    fun `proposeLayOff devuelve null en fase de acciones sin lay-off posible`() {
+        val vm = newViewModel()
+        advanceToHumanTurn(vm)
+        if (vm.uiState.value.state!!.stage == Stage.DRAW) vm.drawFromStock()
+        advance()
+
+        val st = vm.uiState.value.state!!
+        assertEquals(Stage.ACTIONS, st.stage)
+        assertTrue("Nadie se ha bajado aún, no hay lay-off", st.table.values.all { it.isEmpty() })
+        assertNull(vm.proposeLayOff())
+    }
+
+    @Test
+    fun `performLayOff con una accion invalida setea el error y no modifica el estado`() {
+        val vm = newViewModel()
+        advanceToHumanTurn(vm)
+        val human = vm.uiState.value.humanId!!
+        if (vm.uiState.value.state!!.stage == Stage.DRAW) vm.drawFromStock()
+
+        val before = vm.uiState.value.state!!
+        vm.performLayOff(LayOffAction(human, "carta-que-no-existe", meldOwner = human, meldIndex = 0))
+        assertNotNull("Se muestra el error de lay-off", vm.uiState.value.error)
+
+        val after = vm.uiState.value.state!!
+        assertEquals("El tamaño de la mano no cambia", before.hands[human]!!.size, after.hands[human]!!.size)
+        assertEquals("El turno no cambia", human, after.currentPlayer)
+        assertEquals("La mesa no cambia", before.table, after.table)
     }
 
     @Test

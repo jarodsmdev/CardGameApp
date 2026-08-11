@@ -34,8 +34,39 @@ dedo no confirma nada.
 | **Normal** | Carta en la mano, en su posición del arco | Solapadas, sin resalte |
 | **Seleccionada** | Carta preparada para jugar | Elevada sobre el resto, borde dorado, vecinas separadas |
 | **En arrastre** | Carta tocada sin soltar (cualquier carta) | Sigue el dedo 1:1, borde dorado |
-| **Confirmada** | Carta enviada a la mesa | Sale volando hacia arriba desde donde se soltó y desaparece (→ resolución) |
+| **Confirmada** | Carta enviada a la mesa | El overlay la anima desde su slot hasta el **target real** y muestra un borde pulsante al aterrizar |
 | **Cancelada** | Selección revertida | Vuelve con spring a su posición original |
+
+## 2.1 Animación a la posición final (cartas voladoras)
+
+Cuando se confirma una acción (descartar o lay-off), la carta **no** desaparece
+ni vuela "hacia arriba" genéricamente: una capa encima de toda la mesa la anima
+desde su **slot real en la mano** hasta la **posición final exacta** donde la
+carta quedará renderizada:
+
+| Destino | Target real medido |
+|---|---|
+| **Descartar** | El pozo (esquina del rectángulo de la carta superior, desde `onGloballyPositioned` del `DiscardPile`) |
+| **Lay-off** | El slot exacto dentro de la combinación: la carta ya está en el meld cuando el layout final mide su posición (`MeldRow` reporta cada carta) |
+
+Detalles del sistema (`FlyingCardController` + `FlyingCardsOverlay`):
+
+- **Origen real**: `HandRow` reporta con `onGloballyPositioned` la posición en
+  raíz (`localToRoot`) de cada slot de la mano; al confirmar se captura ese
+  valor, nunca una coordenada aproximada ni la del dedo.
+- **Target real**: los targets los reportan los composables del layout final
+  (pozo y melds), de modo que la animación termina exactamente donde la carta
+  quedará renderizada; el vuelo **espera** a que llegue ese valor antes de
+  moverse (la carta reposa en su slot hasta que el estado se aplica y el layout
+  se mide).
+- **Feedback de llegada**: al aterrizar, la carta muestra un **borde dorado
+  pulsante ≈1.2 s** (`PulsingArrivalBorder`) y luego se desvanece.
+- **Acciones inválidas no vuelan**: si la acción es rechazada (p. ej. un JOKER
+  que no se puede descartar), no se pide el vuelo y la carta permanece en su
+  lugar; si el motor rechazara una acción tras lanzarse, la carta se cancela a
+  los ~1.2 s sin animación de llegada.
+- La capa no consume toques: la interacción con la mesa/pozo sigue disponible
+  durante el vuelo.
 
 ## 3. Gestos
 
@@ -100,17 +131,30 @@ cancelar simplemente vuelve al mensaje que corresponde a la situación.
 ## 5. Reutilización para futuras acciones
 
 La mecánica no está atada a "descartar": la confirmación dispara un callback
-`onPlay(cardId)` (hoy cableado a `discard`). Para un futuro **lay-off manual**,
-la misma selección/swipe podrá resolver hacia una combinación de la mesa,
-y hacia cualquier otra zona de juego en el futuro.
+`onPlay(cardId)` y el sistema de cartas voladoras es **genérico y reutilizable**:
+
+- `FlyingCardController` — conecta origen (slot de la mano) con target (layout
+  final) sin acoplarse a ninguna acción concreta.
+- `FlyingCardsOverlay` / `FlyingCardView` / `PulsingArrivalBorder` — capa de
+  vuelo + feedback de llegada, comunes para **descarte y lay-off** y válidas
+  para cualquier zona futura de la mesa.
+- El **lay-off** se resuelve hoy por el bot (`CariocaBot.findLayOff`); el
+  sistema de vuelo ya está preparado para que una futura interacción manual
+  apunte a un slot de una combinación concreta.
 
 ## 6. Implementación
 
-- `GameScreen.kt` — `HandRow` (estado de selección, gestos y render),
-  `CariocaBoard` (estado `selectedCardId` compartido con `ActionBar`,
-  `dragActive`), `ActionBar` (hint contextual según fase, arrastre y
-  selección).
+- `GameScreen.kt` — `HandRow` (estado de selección, gestos, render y reporte
+  de slots), `CariocaBoard` (estado `selectedCardId` compartido con
+  `ActionBar`, `dragActive` y el `FlyingCardController` que cablea
+  descarte/lay-off), `ActionBar` (hint contextual según fase, arrastre y
+  selección), `TableSection`/`MeldRow` (reportan targets de melds),
+  `StockDiscardRow`/`DiscardPile` (reportan el target del pozo).
 - `HandInteraction.kt` — clasificador puro de gestos (`isVerticalDominant`,
   `classifyHandSwipe`), probado en `HandInteractionTest`.
+- `GameViewModel.kt` — `proposeLayOff()` (captura el `LayOffAction` sin
+  aplicarlo, para conocer el origen de la carta antes del cambio de estado) y
+  `performLayOff(action)` (aplica la acción), en sustitución de `autoLayOff`.
 - Umbrales (px/dp): touch slop del sistema, confirm ↑ `40dp`, cancel ↓ `28dp`,
-  separación de vecinas `8dp`, ventana de doble tap `300ms`.
+  separación de vecinas `8dp`, ventana de doble tap `300ms`, vuelo `300ms`,
+  borde pulsante `1.2 s`, desvanecimiento `150ms`.
