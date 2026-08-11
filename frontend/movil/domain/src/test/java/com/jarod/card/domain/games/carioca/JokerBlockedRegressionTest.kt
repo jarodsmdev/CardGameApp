@@ -75,11 +75,17 @@ class JokerBlockedRegressionTest {
     }
 
     @Test
-    fun `regresion - el lay-off válido es J de picas sobre la segunda escala`() {
+    fun `regresion - el lay-off sugerido es el comodin a la escala 2 por detras`() {
         val st = blockedScenarioState()
         val suggested = CariocaBot.findLayOff(st, p1)!!
-        assertEquals("La carta sugerida debe ser J♠ (no el JOKER)", card(Suit.SPADE, Rank.JACK).id, suggested.cardId)
-        assertEquals("Debe extenderse la escala 2 (índice 1)", 1, suggested.meldIndex)
+        // Con la regla §5 actualizada el JOKER puede ir a un extremo de una escala
+        // sin joker. La heurística prefiere el JOKER sobre la escala 2 (Q-K-A-2-3-4)
+        // por el lado alto (=5): deja jugables las dos cartas restantes (6♠ y J♠),
+        // mejor que J♠ (que solo habilita al JOKER). Lo importante del bug original
+        // es que la jugada sugerida sea aceptada por el motor (test anterior).
+        assertEquals("Sugiere el JOKER", joker().id, suggested.cardId)
+        assertEquals("A la escala 2 (índice 1)", 1, suggested.meldIndex)
+        assertEquals("Al extremo alto", RunSide.BACK, suggested.position)
         assertTrue(CariocaGame.canPerform(st, suggested).valid)
     }
 
@@ -126,14 +132,13 @@ class JokerBlockedRegressionTest {
     }
 
     @Test
-    fun `test3 - un joker no puede añadirse via lay-off`() {
+    fun `test3 - un joker puede añadirse a una escala sin joker`() {
         val st = blockedScenarioState()
         val j = joker()
-        assertFalse(
-            "El JOKER no se puede añadir por lay-off (validateLayOff lo rechaza)",
-            CariocaGame.canPerform(st, LayOffAction(p1, j.id, p1, 0)).valid
-        )
-        assertFalse(CariocaGame.canPerform(st, LayOffAction(p1, j.id, p1, 1)).valid)
+        // Regla actualizada (rules.md §5): sin tope por separación. Como ninguna de
+        // las dos escalas de la mesa tiene joker, el JOKER puede agregarse por lay-off.
+        assertTrue("El JOKER se puede añadir a la escala 1 (8-9-10-J)", CariocaGame.canPerform(st, LayOffAction(p1, j.id, p1, 0)).valid)
+        assertTrue("El JOKER se puede añadir a la escala 2 (Q-K-A-2-3-4)", CariocaGame.canPerform(st, LayOffAction(p1, j.id, p1, 1)).valid)
     }
 
     @Test

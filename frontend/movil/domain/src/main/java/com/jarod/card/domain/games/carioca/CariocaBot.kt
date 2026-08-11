@@ -53,22 +53,48 @@ object CariocaBot {
     }
 
     /** Encuentra un lay-off válido (juegos propios y ajenos) para quien ya
-     *  se bajó en la ronda actual y en un turno anterior (rules.md §8). */
+     *  se bajó en la ronda actual y en un turno anterior (rules.md §8). Usa la
+     *  misma validación que el motor (MeldValidator.validateLayOff) y elige la
+     *  mejor jugada: cartas naturales antes que comodines, y para un comodín el
+     *  extremo (FRONT/BACK) que deje más cartas de la mano jugables a futuro. */
     fun findLayOff(state: CariocaState, playerId: PlayerId): LayOffAction? {
         val hand = state.hands[playerId]!!
         if (hand.isEmpty()) return null
         // Solo quien se bajó en la ronda actual y no en el mismo turno puede dar cartas
         if (playerId !in state.meldedThisRound || playerId in state.meldedThisTurn) return null
+        // Preferir cartas naturales antes que comodines (no gastar comodines de más)
+        val orderedHand = hand.sortedBy { it is JokerCard }
+
+        var best: LayOffAction? = null
+        var bestFuture = 0
+        var bestNatural = 0
+
+        fun consider(card: Card, meld: Meld, owner: PlayerId, i: Int, position: RunSide?) {
+            val rest = hand.filter { it.id != card.id }
+            // No gastar la última carta descartable: si tras el lay-off queda una
+            // mano no vacía sin cartas naturales, el turno no podría terminar
+            // (los jokers no se descartan, rules.md §5). Vaciar la mano sí vale
+            // (gana la ronda).
+            if (rest.isNotEmpty() && rest.none { it !is JokerCard }) return
+            val newMeld = MeldValidator.validateLayOff(meld, card, state.ruleset, position) ?: return
+            val future = rest.count { MeldValidator.validateLayOff(newMeld, it, state.ruleset) != null }
+            val natural = if (card is PlayingCard) 1 else 0
+            if (future > bestFuture || (future == bestFuture && natural > bestNatural)) {
+                bestFuture = future
+                bestNatural = natural
+                best = LayOffAction(playerId, card.id, owner, i, position)
+            }
+        }
+
         // Propios
         val ownMelds = state.table[playerId]!!
         for ((i, meld) in ownMelds.withIndex()) {
-            for (card in hand) {
-                // Usar la misma validación que el motor (validateLayOff). Antes se
-                // usaba MeldValidator.validate(meld + card), que aceptaba el JOKER
-                // en cualquier posición y sugería jugadas que luego el motor
-                // rechazaba (bug TODO.md: joker que no puede usarse ni descartarse).
-                if (MeldValidator.validateLayOff(meld, card, state.ruleset) != null) {
-                    return LayOffAction(playerId, card.id, playerId, i)
+            for (card in orderedHand) {
+                if (card is JokerCard) {
+                    consider(card, meld, playerId, i, RunSide.FRONT)
+                    consider(card, meld, playerId, i, RunSide.BACK)
+                } else {
+                    consider(card, meld, playerId, i, null)
                 }
             }
         }
@@ -76,14 +102,17 @@ object CariocaBot {
         for ((owner, melds) in state.table) {
             if (owner == playerId) continue
             for ((i, meld) in melds.withIndex()) {
-                for (card in hand) {
-                    if (MeldValidator.validateLayOff(meld, card, state.ruleset) != null) {
-                        return LayOffAction(playerId, card.id, owner, i)
+                for (card in orderedHand) {
+                    if (card is JokerCard) {
+                        consider(card, meld, owner, i, RunSide.FRONT)
+                        consider(card, meld, owner, i, RunSide.BACK)
+                    } else {
+                        consider(card, meld, owner, i, null)
                     }
                 }
             }
         }
-        return null
+        return best
     }
 
     private fun helpsCombo(state: CariocaState, playerId: PlayerId, card: Card): Boolean {
