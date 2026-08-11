@@ -65,6 +65,8 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -89,6 +91,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -97,6 +100,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -108,6 +112,7 @@ import com.jarod.card.core.ui.ConfirmDialog
 import com.jarod.card.core.util.formatClock
 import com.jarod.card.core.util.formatDuration
 import com.jarod.card.core.util.plural
+import com.jarod.card.domain.core.Card
 import com.jarod.card.domain.engine.PlayerId
 import com.jarod.card.domain.engine.PlayerRanking
 import com.jarod.card.domain.games.carioca.CariocaBot
@@ -116,6 +121,7 @@ import com.jarod.card.domain.games.carioca.CariocaRound
 import com.jarod.card.domain.games.carioca.CariocaState
 import com.jarod.card.domain.games.carioca.ComboSpec
 import com.jarod.card.domain.games.carioca.ComboType
+import com.jarod.card.domain.games.carioca.LayOffAction
 import com.jarod.card.domain.games.carioca.Meld
 import com.jarod.card.domain.games.carioca.Stage
 import com.jarod.card.features.game.cardskin.CardSkin
@@ -273,6 +279,151 @@ private fun rankOf(st: CariocaState, p: PlayerId): Int {
     return ordered.indexOf(p) + 1
 }
 
+// ──────────────────────────────────────────────────────────────
+// Sistema de cartas voladoras (animación al target real)
+// ──────────────────────────────────────────────────────────────
+
+/** Carta en tránsito desde la mano hacia su destino final en la mesa. */
+private data class FlyingCard(
+    val card: Card,
+    val start: Offset,
+    val target: Offset?
+)
+
+/**
+ * Estado compartido del sistema de cartas voladoras. Conecta la posición de
+ * origen (slot de la mano) con el target real medido desde el layout final
+ * (pozo o combinación), de modo que la animación termina exactamente donde la
+ * carta quedará renderizada (TODO.md: animación al target real).
+ */
+private class FlyingCardController {
+    private val _positions = mutableStateMapOf<String, Offset>()
+    private val _flying = mutableStateListOf<FlyingCard>()
+
+    /** Última posición (px globales) del slot de una carta de la mano. */
+    val positions: Map<String, Offset> = _positions
+
+    /** Cartas actualmente en vuelo (target `null` = aún esperando el layout final). */
+    val flying: List<FlyingCard> = _flying
+
+    fun reportPosition(cardId: String, pos: Offset) {
+        _positions[cardId] = pos
+    }
+
+    fun launch(card: Card, start: Offset) {
+        if (_flying.none { it.card.id == card.id }) {
+            _flying.add(FlyingCard(card, start, null))
+        }
+    }
+
+    /** Marca la posición final real de la carta (medida tras el re-render). */
+    fun setTarget(cardId: String, pos: Offset) {
+        val idx = _flying.indexOfFirst { it.card.id == cardId }
+        if (idx >= 0 && _flying[idx].target != pos) {
+            _flying[idx] = _flying[idx].copy(target = pos)
+        }
+    }
+
+    fun remove(cardId: String) {
+        _flying.removeAll { it.card.id == cardId }
+    }
+}
+
+/**
+ * Capa sobre toda la mesa que dibuja las cartas en vuelo. No consume toques
+ * (no bloquea la interacción); cada carta anima desde el slot de la mano hasta
+ * el target real y, al llegar, muestra un borde pulsante ~1.2 s antes de
+ * desvanecerse.
+ */
+@Composable
+private fun FlyingCardsOverlay(
+    controller: FlyingCardController,
+    skin: CardSkin,
+    modifier: Modifier = Modifier
+) {
+    var origin by remember { mutableStateOf(Offset.Zero) }
+    Box(
+        modifier
+            .onGloballyPositioned { origin = it.localToRoot(Offset.Zero) }
+    ) {
+        controller.flying.forEach { fc ->
+            key(fc.card.id) {
+                FlyingCardView(
+                    fc = fc,
+                    origin = origin,
+                    skin = skin,
+                    onDone = { controller.remove(fc.card.id) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FlyingCardView(
+    fc: FlyingCard,
+    origin: Offset,
+    skin: CardSkin,
+    onDone: () -> Unit
+) {
+    val x = remember(fc.card.id) { Animatable(fc.start.x - origin.x) }
+    val y = remember(fc.card.id) { Animatable(fc.start.y - origin.y) }
+    val alpha = remember(fc.card.id) { Animatable(1f) }
+    var pulsing by remember(fc.card.id) { mutableStateOf(false) }
+    val target = fc.target
+    val startX = fc.start.x - origin.x
+    val startY = fc.start.y - origin.y
+
+    LaunchedEffect(target) {
+        // Si la acción fue rechazada por el motor (target nunca llega), la carta
+        // se cancela sin animación de llegada (TODO.md: acciones inválidas no vuelan).
+        if (target == null) {
+            delay(1200)
+            if (fc.target == null) onDone()
+        } else {
+            x.snapTo(startX)
+            y.snapTo(startY)
+            x.animateTo(target.x - origin.x, tween(300, easing = FastOutSlowInEasing))
+            y.animateTo(target.y - origin.y, tween(300, easing = FastOutSlowInEasing))
+            pulsing = true
+            delay(1200)
+            alpha.animateTo(0f, tween(150, easing = FastOutSlowInEasing))
+            onDone()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .offset { IntOffset(x.value.roundToInt(), y.value.roundToInt()) }
+            .graphicsLayer { this.alpha = alpha.value }
+    ) {
+        CardFace(card = fc.card, width = 44.dp, height = 62.dp, skin = skin)
+        if (pulsing) {
+            PulsingArrivalBorder()
+        }
+    }
+}
+
+/** Borde pulsante sutil que señala dónde terminó la carta (≈1.2 s). */
+@Composable
+private fun PulsingArrivalBorder() {
+    val transition = rememberInfiniteTransition(label = "arrivalPulse")
+    val pulse by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(260, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseAlpha"
+    )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .border(3.dp, HandSelectionGold.copy(alpha = pulse), RoundedCornerShape(6.dp))
+    )
+}
+
 @Composable
 fun GameScreen(
     roomId: String,
@@ -309,7 +460,8 @@ fun GameScreen(
                 onDrawStock = viewModel::drawFromStock,
                 onDrawDiscard = viewModel::drawFromDiscard,
                 onMeld = viewModel::autoMeld,
-                onLayOff = viewModel::autoLayOff,
+                onProposeLayOff = viewModel::proposeLayOff,
+                onPerformLayOff = viewModel::performLayOff,
                 onDiscard = viewModel::discard,
                 onCanDiscard = viewModel::canDiscard
             )
@@ -372,7 +524,8 @@ private fun CariocaBoard(
     onDrawStock: () -> Unit,
     onDrawDiscard: () -> Unit,
     onMeld: () -> Unit,
-    onLayOff: () -> Unit,
+    onProposeLayOff: () -> LayOffAction?,
+    onPerformLayOff: (LayOffAction) -> Unit,
     onDiscard: (String) -> Unit,
     onCanDiscard: (String) -> Boolean
 ) {
@@ -389,41 +542,89 @@ private fun CariocaBoard(
     // Estado del arrastre para hints contextuales de ActionBar.
     var dragActive by remember { mutableStateOf(false) }
 
-    Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
-        TopInfo(st, round, myTurn, botsThinking, error, roomId, secondsLeft)
+    // Sistema de cartas voladoras: anima cada carta al target real medido en el
+    // layout final (pozo o combinación). El controlador es común para descarte
+    // y lay-off (TODO.md: target dinámico + feedback de llegada).
+    val flying = remember { FlyingCardController() }
+    val currentSt by rememberUpdatedState(st)
+    val currentHumanId by rememberUpdatedState(humanId)
 
-        OpponentsRow(st, humanId)
+    fun currentCard(cardId: String): Card? =
+        currentSt.hands[currentHumanId]?.firstOrNull { it.id == cardId }
 
-        Spacer(Modifier.height(8.dp))
-
-        Column(
-            modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
-        ) {
-            TableSection(st, humanId, skin)
+    // Descarte: vuelo al pozo desde el slot de la mano, luego la acción.
+    val discardRequest: (String) -> Unit = { cardId ->
+        val card = currentCard(cardId)
+        if (card != null) {
+            val start = flying.positions[cardId]
+            if (start != null) {
+                flying.launch(card, start)
+            }
+            onDiscard(cardId)
         }
+    }
 
-        ActionBar(st, humanId, myTurn, selectedCardId, dragActive, onMeld, onLayOff)
+    // Lay-off: se propone la jugada, se captura el origen de la carta y se
+    // aplica; el target se rellena cuando la combinación renderice la carta.
+    val layOffRequest: () -> Unit = {
+        val action = onProposeLayOff()
+        if (action != null) {
+            val card = currentCard(action.cardId)
+            val start = card?.let { flying.positions[it.id] }
+            if (card != null && start != null) {
+                flying.launch(card, start)
+            }
+            onPerformLayOff(action)
+        }
+    }
 
-        StockDiscardRow(st, myTurn, skin, dominantHand, onDrawStock, onDrawDiscard)
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+            TopInfo(st, round, myTurn, botsThinking, error, roomId, secondsLeft)
 
-        HandRow(
-            st, humanId, myTurn, skin, onDiscard, onCanDiscard,
-            selectedCardId = selectedCardId,
-            onSelectionChange = { selectedCardId = it },
-            onDragActiveChange = { dragActive = it }
-        )
+            OpponentsRow(st, humanId)
 
-        if (human.isEmpty()) {
-            Text(
-                text = "Sin cartas — esperando nueva ronda…",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(vertical = 4.dp)
+            Spacer(Modifier.height(8.dp))
+
+            Column(
+                modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
+            ) {
+                TableSection(
+                    st, humanId, skin,
+                    onCardPosition = flying::setTarget
+                )
+            }
+
+            ActionBar(st, humanId, myTurn, selectedCardId, dragActive, onMeld, layOffRequest)
+
+            StockDiscardRow(
+                st, myTurn, skin, dominantHand, onDrawStock, onDrawDiscard,
+                onPileReport = flying::setTarget
             )
+
+            HandRow(
+                st, humanId, myTurn, skin, onDiscardRequest = discardRequest,
+                onCanDiscard = onCanDiscard,
+                onCardPosition = flying::reportPosition,
+                selectedCardId = selectedCardId,
+                onSelectionChange = { selectedCardId = it },
+                onDragActiveChange = { dragActive = it }
+            )
+
+            if (human.isEmpty()) {
+                Text(
+                    text = "Sin cartas — esperando nueva ronda…",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+            }
+
+            Box(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
+                ScoreChip(score = st.scores[humanId] ?: 0, rank = rankOf(st, humanId))
+            }
         }
 
-        Box(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
-            ScoreChip(score = st.scores[humanId] ?: 0, rank = rankOf(st, humanId))
-        }
+        FlyingCardsOverlay(controller = flying, skin = skin, modifier = Modifier.matchParentSize())
     }
 }
 
@@ -612,7 +813,12 @@ private fun PlayerCard(
 }
 
 @Composable
-private fun TableSection(st: CariocaState, humanId: PlayerId, skin: CardSkin) {
+private fun TableSection(
+    st: CariocaState,
+    humanId: PlayerId,
+    skin: CardSkin,
+    onCardPosition: (String, Offset) -> Unit
+) {
     val meldsByPlayer = st.table.filterValues { it.isNotEmpty() }
     Text("Mesa", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
     if (meldsByPlayer.isEmpty()) {
@@ -649,7 +855,7 @@ private fun TableSection(st: CariocaState, humanId: PlayerId, skin: CardSkin) {
                 Spacer(Modifier.width(8.dp))
                 Row(Modifier.horizontalScroll(rememberScrollState())) {
                     melds.forEach { meld ->
-                        MeldRow(meld, skin)
+                        MeldRow(meld, skin, onCardPosition)
                     }
                 }
             }
@@ -658,7 +864,11 @@ private fun TableSection(st: CariocaState, humanId: PlayerId, skin: CardSkin) {
 }
 
 @Composable
-private fun MeldRow(meld: Meld, skin: CardSkin) {
+private fun MeldRow(
+    meld: Meld,
+    skin: CardSkin,
+    onCardPosition: (String, Offset) -> Unit
+) {
     // Las cartas del meld se apilan una encima de otra (mismo solapamiento que la
     // mano del jugador); la separación entre melds se mantiene en TableSection.
     Row(
@@ -666,7 +876,17 @@ private fun MeldRow(meld: Meld, skin: CardSkin) {
         horizontalArrangement = Arrangement.spacedBy((-18).dp)
     ) {
         meld.cards.forEach { card ->
-            CardFace(card = card, width = 44.dp, height = 62.dp, skin = skin)
+            // Reporta la posición real de cada carta: el overlay la usa como target
+            // cuando la carta voladora aterriza en esta combinación (TODO.md).
+            CardFace(
+                card = card,
+                width = 44.dp,
+                height = 62.dp,
+                skin = skin,
+                modifier = Modifier.onGloballyPositioned {
+                    onCardPosition(card.id, it.localToRoot(Offset.Zero))
+                }
+            )
         }
     }
 }
@@ -678,7 +898,8 @@ private fun StockDiscardRow(
     skin: CardSkin,
     dominantHand: DominantHand,
     onDrawStock: () -> Unit,
-    onDrawDiscard: () -> Unit
+    onDrawDiscard: () -> Unit,
+    onPileReport: (String, Offset) -> Unit
 ) {
     val pulse by rememberPulse()
     val canDrawStock = myTurn && st.stage == Stage.DRAW && st.stock.isNotEmpty()
@@ -696,9 +917,9 @@ private fun StockDiscardRow(
     ) {
         if (dominantHand == DominantHand.LEFT) {
             StockPile(st, canDrawStock, skin, pulse, onDrawStock)
-            DiscardPile(st, canDrawDiscard, skin, pulse, onDrawDiscard)
+            DiscardPile(st, canDrawDiscard, skin, pulse, onDrawDiscard, onPileReport)
         } else {
-            DiscardPile(st, canDrawDiscard, skin, pulse, onDrawDiscard)
+            DiscardPile(st, canDrawDiscard, skin, pulse, onDrawDiscard, onPileReport)
             StockPile(st, canDrawStock, skin, pulse, onDrawStock)
         }
     }
@@ -741,11 +962,16 @@ private fun DiscardPile(
     canDrawDiscard: Boolean,
     skin: CardSkin,
     pulse: Float,
-    onDrawDiscard: () -> Unit
+    onDrawDiscard: () -> Unit,
+    onPileReport: (String, Offset) -> Unit
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         val top = st.discard.lastOrNull()
-        Box {
+        Box(
+            modifier = Modifier.onGloballyPositioned {
+                if (top != null) onPileReport(top.id, it.localToRoot(Offset.Zero))
+            }
+        ) {
             if (top != null) {
                 CardFace(
                     card = top,
@@ -830,8 +1056,9 @@ private fun HandRow(
     humanId: PlayerId,
     myTurn: Boolean,
     skin: CardSkin,
-    onDiscard: (String) -> Unit,
+    onDiscardRequest: (String) -> Unit,
     onCanDiscard: (String) -> Boolean,
+    onCardPosition: (String, Offset) -> Unit,
     selectedCardId: String?,
     onSelectionChange: (String?) -> Unit,
     onDragActiveChange: (Boolean) -> Unit
@@ -885,7 +1112,6 @@ private fun HandRow(
         val selectionGapPx = with(density) { 8.dp.toPx() }
         val confirmUpPx = with(density) { 40.dp.toPx() }
         val cancelDownPx = with(density) { 28.dp.toPx() }
-        val launchDistancePx = cardHeightPx * 2.5f
         val doubleTapWindowMs = 300L
         val maxArcRotation = 4f
         val availableWidth = maxWidth
@@ -1085,19 +1311,14 @@ private fun HandRow(
                     label = "lift"
                 )
 
-                // Al confirmar (swipe ↑ o doble tap) la carta sale volando hacia la mesa
-                // y, al terminar, se ejecuta la acción (descartar al pozo). La animación
-                // solo se lanza si el descarte es VÁLIDO: si es rechazado (p. ej. un
-                // JOKER), la carta permanece visible y en su lugar (bug TODO.md).
-                val launch = remember(cardId) { Animatable(0f) }
+                // Al confirmar (swipe ↑ o doble tap) la carta sale de la mano y el
+                // overlay de cartas voladoras la anima hasta su target real. Si el
+                // descarte es INVALIDO no se pide la acción y la carta queda en su
+                // lugar (sin animación, TODO.md: acciones inválidas no vuelan).
                 LaunchedEffect(isConfirmed) {
                     if (isConfirmed) {
                         if (onCanDiscard(cardId)) {
-                            launch.animateTo(1f, tween(300, easing = FastOutSlowInEasing))
-                            onDiscard(cardId)
-                        } else {
-                            // Descarte rechazado: restaurar la carta sin animarla.
-                            launch.snapTo(0f)
+                            onDiscardRequest(cardId)
                         }
                         confirmedCardId = null
                         onSelectionChange(null)
@@ -1124,28 +1345,28 @@ private fun HandRow(
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
+                        .onGloballyPositioned {
+                            onCardPosition(cardId, it.localToRoot(Offset.Zero))
+                        }
                         .zIndex(
                             when {
-                                isConfirmed -> 2f
                                 isDragged || isSelected -> 1f
                                 else -> 0f
                             }
                         )
                         .graphicsLayer {
                             translationX = if (isDragged) dragX - dragAnchor else x.value
-                            // Un único arrastre en ambos ejes: ↑ descarta (vuelo desde
-                            // donde soltó), ↓/ninguno vuelve a la mano.
+                            // Un único arrastre en ambos ejes: ↑ descarta (la carta la
+                            // anima el overlay desde el slot); ↓/ninguno vuelve a la mano.
                             translationY = when {
                                 isDragged -> dragY - dragAnchorY
-                                isConfirmed -> confirmedFromY - launch.value * launchDistancePx
+                                isConfirmed -> confirmedFromY
                                 else -> yOffset.value
                             }
                             rotationZ = if (isDragged || isSelected) 0f else t * maxArcRotation
                             transformOrigin = TransformOrigin(0.5f, 1f)
-                            val extra = 0.12f * launch.value
-                            scaleX = 1f + 0.07f * lift + extra
-                            scaleY = 1f + 0.07f * lift + extra
-                            alpha = 1f - launch.value
+                            scaleX = 1f + 0.07f * lift
+                            scaleY = 1f + 0.07f * lift
                             shadowElevation = shadowPx * lift
                             shape = RoundedCornerShape(6.dp)
                         }

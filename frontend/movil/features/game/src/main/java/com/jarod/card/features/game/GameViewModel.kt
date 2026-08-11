@@ -16,6 +16,7 @@ import com.jarod.card.domain.games.carioca.CariocaState
 import com.jarod.card.domain.games.carioca.DiscardAction
 import com.jarod.card.domain.games.carioca.DrawFromDiscard
 import com.jarod.card.domain.games.carioca.DrawFromStock
+import com.jarod.card.domain.games.carioca.LayOffAction
 import com.jarod.card.domain.games.carioca.MeldAction
 import com.jarod.card.domain.games.carioca.RoundEnd
 import com.jarod.card.domain.games.carioca.Stage
@@ -124,10 +125,20 @@ class GameViewModel @Inject constructor(
         CariocaBot.findMeldForRound(hand, round)?.let { MeldAction(human, it) }
     }
 
-    fun autoLayOff() = humanAction { human ->
-        val st = currentState() ?: return@humanAction null
-        CariocaBot.findLayOff(st, human)
+    /**
+     * Propone el lay-off que el humano debería jugar, SIN aplicarlo. La UI lo
+     * usa para conocer la carta y capturar su posición de origen antes de que
+     * el estado se actualice (animación al target real, TODO.md).
+     */
+    fun proposeLayOff(): LayOffAction? {
+        val st = currentState() ?: return null
+        val human = _uiState.value.humanId ?: return null
+        if (st.phase != CariocaPhase.PLAYING || st.currentPlayer != human) return null
+        return CariocaBot.findLayOff(st, human)
     }
+
+    /** Aplica un lay-off concreto (validado por el motor). */
+    fun performLayOff(action: LayOffAction) = humanAction { action }
 
     fun discard(cardId: String) = humanAction { human -> DiscardAction(human, cardId) }
 
