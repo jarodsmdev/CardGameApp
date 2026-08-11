@@ -46,7 +46,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.EmojiEvents
-import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Loop
 import androidx.compose.material.icons.filled.TrackChanges
 import androidx.compose.material3.Button
@@ -1674,18 +1673,14 @@ private fun AnimatedScore(
 private fun RoundsWonStat(roundsWon: Int, totalRounds: Int) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(
-            imageVector = if (roundsWon == 0) Icons.Filled.HourglassEmpty else Icons.Filled.EmojiEvents,
+            imageVector = Icons.Filled.EmojiEvents,
             contentDescription = "Rondas ganadas",
-            tint = if (roundsWon == 0) MaterialTheme.colorScheme.onSurfaceVariant else MedalGold,
+            tint = MedalGold,
             modifier = Modifier.size(14.dp)
         )
         Spacer(Modifier.width(5.dp))
         Text(
-            text = if (roundsWon == 0) {
-                "Sin rondas ganadas aún"
-            } else {
-                "Ganó $roundsWon de $totalRounds ${if (totalRounds == 1) "ronda" else "rondas"}"
-            },
+            text = "Ganó $roundsWon de $totalRounds ${if (totalRounds == 1) "ronda" else "rondas"}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
