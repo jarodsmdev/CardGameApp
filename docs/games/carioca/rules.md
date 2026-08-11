@@ -88,9 +88,15 @@ comodines** en la base; solo actúan como comodines si se activa la **variante
 - **Límite por mano:** no se valen **más de 2 comodines en una misma mano**.
 - **Descartes:** en las rondas que permiten jokers, **no se pueden descartar
   jokers al pozo**.
-- **Posición en la escala:** el comodín debe ir **entre 3 cartas** (p. ej. en
-  `4-5-6-Joker` no se puede lanzar otro joker; en `3-4-5-6` sí, quedando
-  `Joker-3-4-5-6-Joker`, cumpliendo "no juntos").
+- **Posición en la escala (regla "entre tres cartas"):** los comodines no pueden
+  quedar juntos ni separados por menos de **3 cartas naturales**. Al hacer
+  **lay-off**, un joker solo se agrega a un **extremo** de la escala (por el lado
+  bajo o por el lado alto), quedando fijo en esa posición; a partir de ahí se
+  pueden seguir agregando cartas naturales (p. ej. `4-5-6-7 + Joker(=8) + 9` →
+  `4-5-6-7-Joker-9`). **No hay tope fijo de jokers por escala en lay-off**: el
+  único límite es la separación (p. ej. `3-4-5-6` con jokers en ambos extremos →
+  `Joker-3-4-5-6-Joker` es válido; `4-5-Joker-7-8` ya no acepta otro joker,
+  quedarían solo 2 naturales entre comodines).
 - **Escala Real con giro doble:** se puede ocupar un comodín cuando la escala real
   "da 2 vueltas"; no pueden reemplazar cartas consecutivas (como `5-6` o `A-K`).
   Algunas variantes **no permiten su uso**.

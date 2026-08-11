@@ -20,6 +20,9 @@ sealed interface Meld {
     data class Run(override val cards: List<Card>) : Meld
 }
 
+/** Lado de una escala donde se agrega una carta por lay-off (rules.md §5/§8). */
+enum class RunSide { FRONT, BACK }
+
 object MeldValidator {
 
     fun validate(cards: List<Card>, rules: CariocaRuleset): Meld? {
@@ -55,20 +58,48 @@ object MeldValidator {
      * Devuelve la Run con cartas ordenadas secuencialmente (jokers en su posición).
      */
     fun validateRun(cards: List<Card>, rules: CariocaRuleset): Meld.Run? {
+        val jokers = cards.count { it is JokerCard }
+        if (jokers > rules.jokerRules.maxPerMeld) return null
+        return buildRun(cards, rules)
+    }
+
+    /**
+     * Forma canónica de una escala con jokers, sin el tope maxPerMeld
+     * (rules.md §5): al bajarse hay máximo 1 comodín por escala, pero tras la
+     * bajada los lay-offs pueden agregar más, limitados por la separación entre
+     * comodines (ver [jokersSeparated]), no por un máximo fijo.
+     */
+    private fun buildRun(cards: List<Card>, rules: CariocaRuleset): Meld.Run? =
+        buildRun(cards, rules, null)
+
+    /**
+     * Igual que [buildRun] pero fijando el comodín al extremo pedido en un
+     * lay-off (rules.md §5): al agregar un comodín por lay-off este debe quedar
+     * al lado bajo (FRONT) o alto (BACK), no en cualquier ventana que encaje.
+     */
+    private fun buildRun(cards: List<Card>, rules: CariocaRuleset, pinnedEnd: RunSide?): Meld.Run? {
         val real = cards.filterIsInstance<PlayingCard>()
         if (real.isEmpty()) return null
         if (real.size < rules.runRules.minLength - 1) return null
         if (rules.runRules.sameSuit && real.map { it.suit }.distinct().size != 1) return null
         val realRanks = real.map { it.rank.cycleIndex }
         if (realRanks.size != realRanks.distinct().size) return null
-        val jokers = cards.count { it is JokerCard }
-        if (jokers > rules.jokerRules.maxPerMeld) return null
         if (cards.size < rules.runRules.minLength) return null
 
         val ranksSet = realRanks.toSet()
         val len = cards.size
 
-        for (start in 0 until Rank.CYCLE_SIZE) {
+        // Orden de ventanas a probar: con extremo fijado, el slot del comodín
+        // nuevo (inferior en FRONT, superior en BACK) debe ser un hueco libre.
+        val starts = when (pinnedEnd) {
+            null -> (0 until Rank.CYCLE_SIZE).asSequence()
+            RunSide.FRONT -> (0 until Rank.CYCLE_SIZE).asSequence().filter { it !in ranksSet }
+            RunSide.BACK -> (0 until Rank.CYCLE_SIZE).asSequence().filter {
+                ((it + len - 1) % Rank.CYCLE_SIZE) !in ranksSet
+            }
+        }
+
+        for (start in starts) {
             if (start + len > Rank.CYCLE_SIZE && !rules.runRules.wraparound) continue
             val window = (0 until len).map { (start + it) % Rank.CYCLE_SIZE }.toSet()
             if (ranksSet.all { it in window }) {
@@ -134,11 +165,12 @@ object MeldValidator {
     fun validateLayOff(
         oldMeld: Meld,
         newCard: Card,
-        rules: CariocaRuleset
+        rules: CariocaRuleset,
+        position: RunSide? = null
     ): Meld? {
         return when (oldMeld) {
             is Meld.Triple -> validateLayOffTriple(oldMeld, newCard, rules)
-            is Meld.Run -> validateLayOffRun(oldMeld, newCard, rules)
+            is Meld.Run -> validateLayOffRun(oldMeld, newCard, rules, position)
         }
     }
 
@@ -155,10 +187,27 @@ object MeldValidator {
     private fun validateLayOffRun(
         run: Meld.Run,
         newCard: Card,
-        rules: CariocaRuleset
+        rules: CariocaRuleset,
+        position: RunSide? = null
     ): Meld.Run? {
-        // Solo cartas reales se pueden añadir (no jokers) en lay-off estándar
-        val newReal = newCard as? PlayingCard ?: return null
+        // Una escala de 13 cartas es el máximo del ciclo: nada la puede extender.
+        if (run.cards.size >= Rank.CYCLE_SIZE) return null
+
+        // Lay-off de un comodín (rules.md §5): tras la bajada se pueden agregar
+        // comodines a una escala en la mesa, en un extremo (FRONT o BACK). No hay
+        // máximo fijo por escala; el único límite es que no queden juntos ni
+        // separados por menos de 3 cartas naturales ("entre tres cartas").
+        if (newCard is JokerCard) {
+            val front = if (position != RunSide.BACK)
+                buildRun(listOf(newCard) + run.cards, rules, RunSide.FRONT) else null
+            if (front != null && jokersSeparated(front)) return front
+            val back = if (position != RunSide.FRONT)
+                buildRun(run.cards + newCard, rules, RunSide.BACK) else null
+            if (back != null && jokersSeparated(back)) return back
+            return null
+        }
+
+        val newReal = newCard as PlayingCard
 
         // Misma pinta si la regla lo exige
         if (rules.runRules.sameSuit) {
@@ -193,6 +242,20 @@ object MeldValidator {
             run.cards + newReal
         }
         return Meld.Run(newCards)
+    }
+
+    /** rules.md §5: los comodines de una escala no pueden quedar juntos ni
+     *  separados por menos de 3 cartas naturales ("entre tres cartas").
+     *  Recibe una run ya canónica (jokers en su posición lógica). */
+    private fun jokersSeparated(run: Meld.Run): Boolean {
+        var lastJoker = -1
+        for ((i, card) in run.cards.withIndex()) {
+            if (card is JokerCard) {
+                if (lastJoker >= 0 && i - lastJoker - 1 < 3) return false
+                lastJoker = i
+            }
+        }
+        return true
     }
 
     /** Devuelve (minCycleIndex, maxCycleIndex) representados por una run canónica. */

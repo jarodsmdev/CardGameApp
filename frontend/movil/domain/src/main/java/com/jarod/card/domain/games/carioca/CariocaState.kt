@@ -44,7 +44,7 @@ data class DrawFromStock(override val playerId: PlayerId) : CariocaAction
 data class DrawFromDiscard(override val playerId: PlayerId) : CariocaAction
 data class MeldAction(override val playerId: PlayerId, val groups: List<Meld>) : CariocaAction
 data class DiscardAction(override val playerId: PlayerId, val cardId: String) : CariocaAction
-data class LayOffAction(override val playerId: PlayerId, val cardId: String, val meldOwner: PlayerId, val meldIndex: Int) : CariocaAction
+data class LayOffAction(override val playerId: PlayerId, val cardId: String, val meldOwner: PlayerId, val meldIndex: Int, val position: RunSide? = null) : CariocaAction
 
 /** Avanza a la siguiente ronda tras cerrar el scoreboard (fase ROUND_END). */
 data class StartNextRound(override val playerId: PlayerId) : CariocaAction
