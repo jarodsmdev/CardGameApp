@@ -1,4 +1,4 @@
-package com.jarod.card.features.game.cardskin
+package com.jarod.card.features.game.settings
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -16,7 +16,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,19 +41,23 @@ import com.jarod.card.domain.core.Rank
 import com.jarod.card.domain.core.Suit
 import com.jarod.card.features.game.CardBack
 import com.jarod.card.features.game.CardFace
+import com.jarod.card.features.game.cardskin.BackDesign
+import com.jarod.card.features.game.cardskin.FrontDesign
+import com.jarod.card.features.game.cardskin.JokerStyle
 
 private val SamplePlaying = PlayingCard("sample:\u2665:A", 0, Suit.HEART, Rank.ACE)
 private val SampleJokerColored = JokerCard("sample:JOKER:COLORED", 0, JokerType.COLORED)
 private val SampleJokerPlain = JokerCard("sample:JOKER:PLAIN", 0, JokerType.PLAIN)
 
-/** Pantalla de ajustes: elección del diseño de cartas con vista previa en vivo. */
+/** Pantalla de ajustes: diseño de cartas y preferencias de accesibilidad. */
 @Composable
-fun CardDesignScreen(
+fun SettingsScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: CardDesignViewModel = hiltViewModel()
+    viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val skin by viewModel.skin.collectAsStateWithLifecycle()
+    val dominantHand by viewModel.dominantHand.collectAsStateWithLifecycle()
 
     var showExitDialog by remember { mutableStateOf(false) }
     BackHandler(enabled = !showExitDialog) { showExitDialog = true }
@@ -69,16 +73,16 @@ fun CardDesignScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "Volver")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
             }
             Column {
                 Text(
-                    text = "Ajustes de cartas",
+                    text = "Ajustes",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Personaliza el reverso, el frontal y el joker de las cartas.",
+                    text = "Personaliza las cartas y las preferencias de juego.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -142,6 +146,16 @@ fun CardDesignScreen(
                 }
             },
             onSelect = viewModel::selectJoker
+        )
+
+        DesignSection(
+            title = "Preferencia de mano",
+            subtitle = "Posiciona el mazo y el pozo cerca de tu mano dominante.",
+            options = DominantHand.entries,
+            label = { "\u270B ${it.label}" },
+            isSelected = { it == dominantHand },
+            preview = {},
+            onSelect = viewModel::selectDominantHand
         )
     }
 }

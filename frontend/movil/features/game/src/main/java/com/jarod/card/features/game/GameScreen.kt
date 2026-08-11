@@ -118,6 +118,7 @@ import com.jarod.card.domain.games.carioca.ComboType
 import com.jarod.card.domain.games.carioca.Meld
 import com.jarod.card.domain.games.carioca.Stage
 import com.jarod.card.features.game.cardskin.CardSkin
+import com.jarod.card.features.game.settings.DominantHand
 import com.jarod.card.features.game.stats.CumulativeStats
 import com.jarod.card.features.game.stats.GameStats
 import com.jarod.card.features.game.stats.RoundStats
@@ -302,6 +303,7 @@ fun GameScreen(
                 error = ui.error,
                 roomId = roomId,
                 skin = ui.skin,
+                dominantHand = ui.dominantHand,
                 secondsLeft = ui.secondsLeft,
                 onDrawStock = viewModel::drawFromStock,
                 onDrawDiscard = viewModel::drawFromDiscard,
@@ -364,6 +366,7 @@ private fun CariocaBoard(
     error: String?,
     roomId: String,
     skin: CardSkin,
+    dominantHand: DominantHand,
     secondsLeft: Int,
     onDrawStock: () -> Unit,
     onDrawDiscard: () -> Unit,
@@ -400,7 +403,7 @@ private fun CariocaBoard(
 
         ActionBar(st, humanId, myTurn, selectedCardId, dragActive, onMeld, onLayOff)
 
-        StockDiscardRow(st, myTurn, skin, onDrawStock, onDrawDiscard)
+        StockDiscardRow(st, myTurn, skin, dominantHand, onDrawStock, onDrawDiscard)
 
         HandRow(
             st, humanId, myTurn, skin, onDiscard, onCanDiscard,
@@ -672,6 +675,7 @@ private fun StockDiscardRow(
     st: CariocaState,
     myTurn: Boolean,
     skin: CardSkin,
+    dominantHand: DominantHand,
     onDrawStock: () -> Unit,
     onDrawDiscard: () -> Unit
 ) {
@@ -680,53 +684,84 @@ private fun StockDiscardRow(
     val canDrawDiscard = myTurn && st.stage == Stage.DRAW && st.discard.isNotEmpty()
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        // El grupo mazo+pozo se posiciona junto a la mano dominante, y el mazo
+        // (interacción principal) queda pegado al borde de esa mano:
+        //   derecha → [ POZO ] [ MAZO ]     izquierda → [ MAZO ] [ POZO ]
+        horizontalArrangement = Arrangement.spacedBy(
+            16.dp,
+            if (dominantHand == DominantHand.LEFT) Alignment.Start else Alignment.End
+        ),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Mazo
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            // El reverso mostrado es el del mazo al que pertenece la carta de
-            // arriba: al robar cambia y alterna entre los 2 diseños de reverso.
-            val top = st.stock.lastOrNull()
-            Box {
-                CardBack(
-                    modifier = Modifier
-                        .clickable(enabled = canDrawStock, onClick = onDrawStock)
-                        .graphicsLayer {
-                            val s = if (canDrawStock) 1f + 0.04f * pulse else 1f
-                            scaleX = s
-                            scaleY = s
-                        },
-                    skin = skin,
-                    deckIndex = top?.setIndex ?: 0
-                )
-                if (st.stock.isNotEmpty()) {
-                    CountBadge(st.stock.size)
-                }
+        if (dominantHand == DominantHand.LEFT) {
+            StockPile(st, canDrawStock, skin, pulse, onDrawStock)
+            DiscardPile(st, canDrawDiscard, skin, pulse, onDrawDiscard)
+        } else {
+            DiscardPile(st, canDrawDiscard, skin, pulse, onDrawDiscard)
+            StockPile(st, canDrawStock, skin, pulse, onDrawStock)
+        }
+    }
+}
+
+@Composable
+private fun StockPile(
+    st: CariocaState,
+    canDrawStock: Boolean,
+    skin: CardSkin,
+    pulse: Float,
+    onDrawStock: () -> Unit
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        // El reverso mostrado es el del mazo al que pertenece la carta de
+        // arriba: al robar cambia y alterna entre los 2 diseños de reverso.
+        val top = st.stock.lastOrNull()
+        Box {
+            CardBack(
+                modifier = Modifier
+                    .clickable(enabled = canDrawStock, onClick = onDrawStock)
+                    .graphicsLayer {
+                        val s = if (canDrawStock) 1f + 0.04f * pulse else 1f
+                        scaleX = s
+                        scaleY = s
+                    },
+                skin = skin,
+                deckIndex = top?.setIndex ?: 0
+            )
+            if (st.stock.isNotEmpty()) {
+                CountBadge(st.stock.size)
             }
         }
-        // Pozo
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            val top = st.discard.lastOrNull()
-            Box {
-                if (top != null) {
-                    CardFace(
-                        card = top,
-                        skin = skin,
-                        modifier = Modifier
-                            .clickable(enabled = canDrawDiscard, onClick = onDrawDiscard)
-                            .graphicsLayer {
-                                val s = if (canDrawDiscard) 1f + 0.04f * pulse else 1f
-                                scaleX = s
-                                scaleY = s
-                            }
-                    )
-                } else {
-                    CardBack(width = 44.dp, height = 62.dp, skin = skin)
-                }
-                if (st.discard.isNotEmpty()) {
-                    CountBadge(st.discard.size)
-                }
+    }
+}
+
+@Composable
+private fun DiscardPile(
+    st: CariocaState,
+    canDrawDiscard: Boolean,
+    skin: CardSkin,
+    pulse: Float,
+    onDrawDiscard: () -> Unit
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        val top = st.discard.lastOrNull()
+        Box {
+            if (top != null) {
+                CardFace(
+                    card = top,
+                    skin = skin,
+                    modifier = Modifier
+                        .clickable(enabled = canDrawDiscard, onClick = onDrawDiscard)
+                        .graphicsLayer {
+                            val s = if (canDrawDiscard) 1f + 0.04f * pulse else 1f
+                            scaleX = s
+                            scaleY = s
+                        }
+                )
+            } else {
+                CardBack(width = 44.dp, height = 62.dp, skin = skin)
+            }
+            if (st.discard.isNotEmpty()) {
+                CountBadge(st.discard.size)
             }
         }
     }
