@@ -124,6 +124,19 @@ class GameViewModel @Inject constructor(
 
     fun discard(cardId: String) = humanAction { human -> DiscardAction(human, cardId) }
 
+    /**
+     * Valida si la carta del humano puede descartarse en este momento, sin
+     * aplicarlo. La UI lo consulta ANTES de lanzar la animación de descarte:
+     * si no es válido (p. ej. un JOKER), la carta no debe animarse ni
+     * desaparecer (bug TODO.md).
+     */
+    fun canDiscard(cardId: String): Boolean {
+        val st = currentState() ?: return false
+        val human = _uiState.value.humanId ?: return false
+        if (st.phase != CariocaPhase.PLAYING || st.currentPlayer != human) return false
+        return CariocaGame.canPerform(st, DiscardAction(human, cardId)).valid
+    }
+
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
     }

@@ -307,7 +307,8 @@ fun GameScreen(
                 onDrawDiscard = viewModel::drawFromDiscard,
                 onMeld = viewModel::autoMeld,
                 onLayOff = viewModel::autoLayOff,
-                onDiscard = viewModel::discard
+                onDiscard = viewModel::discard,
+                onCanDiscard = viewModel::canDiscard
             )
         }
         val human = ui.humanId
@@ -368,7 +369,8 @@ private fun CariocaBoard(
     onDrawDiscard: () -> Unit,
     onMeld: () -> Unit,
     onLayOff: () -> Unit,
-    onDiscard: (String) -> Unit
+    onDiscard: (String) -> Unit,
+    onCanDiscard: (String) -> Boolean
 ) {
     val myTurn = st.phase == CariocaPhase.PLAYING && st.currentPlayer == humanId
     val round = st.ruleset.rounds[st.roundIndex]
@@ -401,7 +403,7 @@ private fun CariocaBoard(
         StockDiscardRow(st, myTurn, skin, onDrawStock, onDrawDiscard)
 
         HandRow(
-            st, humanId, myTurn, skin, onDiscard,
+            st, humanId, myTurn, skin, onDiscard, onCanDiscard,
             selectedCardId = selectedCardId,
             onSelectionChange = { selectedCardId = it },
             onDragActiveChange = { dragActive = it }
@@ -793,6 +795,7 @@ private fun HandRow(
     myTurn: Boolean,
     skin: CardSkin,
     onDiscard: (String) -> Unit,
+    onCanDiscard: (String) -> Boolean,
     selectedCardId: String?,
     onSelectionChange: (String?) -> Unit,
     onDragActiveChange: (Boolean) -> Unit
@@ -1047,14 +1050,21 @@ private fun HandRow(
                 )
 
                 // Al confirmar (swipe ↑ o doble tap) la carta sale volando hacia la mesa
-                // y, al terminar, se ejecuta la acción (descartar al pozo).
+                // y, al terminar, se ejecuta la acción (descartar al pozo). La animación
+                // solo se lanza si el descarte es VÁLIDO: si es rechazado (p. ej. un
+                // JOKER), la carta permanece visible y en su lugar (bug TODO.md).
                 val launch = remember(cardId) { Animatable(0f) }
                 LaunchedEffect(isConfirmed) {
                     if (isConfirmed) {
-                        launch.animateTo(1f, tween(300, easing = FastOutSlowInEasing))
+                        if (onCanDiscard(cardId)) {
+                            launch.animateTo(1f, tween(300, easing = FastOutSlowInEasing))
+                            onDiscard(cardId)
+                        } else {
+                            // Descarte rechazado: restaurar la carta sin animarla.
+                            launch.snapTo(0f)
+                        }
                         confirmedCardId = null
                         onSelectionChange(null)
-                        onDiscard(cardId)
                     }
                 }
 

@@ -18,6 +18,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -132,6 +133,45 @@ class GameViewModelTest {
 
         vm.discard("carta-que-no-existe")
         assertNotNull(vm.uiState.value.error)
+    }
+
+    @Test
+    fun `canDiscard es false para un joker y el descarte fallido deja la mano intacta`() {
+        // Seed 4: la mano inicial del humano contiene un JOKER (0:JOKER:JOKER_PLAIN).
+        val vm = newViewModel(seed = 4)
+        advanceToHumanTurn(vm)
+        val human = vm.uiState.value.humanId!!
+        if (vm.uiState.value.state!!.stage == Stage.DRAW) vm.drawFromStock()
+
+        val st = vm.uiState.value.state!!
+        val joker = st.hands[human]!!.first { it is com.jarod.card.domain.core.JokerCard }
+        val before = st.hands[human]!!.toList()
+
+        assertFalse("El JOKER no se puede descartar (canDiscard)", vm.canDiscard(joker.id))
+        vm.discard(joker.id)
+        assertNotNull("Se muestra el error de descarte", vm.uiState.value.error)
+
+        val after = vm.uiState.value.state!!.hands[human]!!
+        assertEquals("El tamaño de la mano no cambia", before.size, after.size)
+        assertEquals("La mano queda idéntica (sin hueco vacío)", before, after)
+        assertTrue("El JOKER sigue en la mano", after.any { it.id == joker.id })
+        assertEquals("El turno no cambia", human, vm.uiState.value.state!!.currentPlayer)
+        assertEquals("Se sigue en ACTIONS", Stage.ACTIONS, vm.uiState.value.state!!.stage)
+    }
+
+    @Test
+    fun `canDiscard es true para una carta normal y el descarte valido pasa el turno`() {
+        val vm = newViewModel()
+        advanceToHumanTurn(vm)
+        val human = vm.uiState.value.humanId!!
+        if (vm.uiState.value.state!!.stage == Stage.DRAW) vm.drawFromStock()
+
+        val st = vm.uiState.value.state!!
+        val card = st.hands[human]!!.first { it !is com.jarod.card.domain.core.JokerCard }
+
+        assertTrue("Una carta normal sí se puede descartar", vm.canDiscard(card.id))
+        vm.discard(card.id)
+        assertTrue("El turno pasa al siguiente jugador", vm.uiState.value.state!!.currentPlayer != human)
     }
 
     @Test
