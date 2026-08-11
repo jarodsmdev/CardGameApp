@@ -133,7 +133,9 @@ class GameViewModel @Inject constructor(
     fun proposeLayOff(): LayOffAction? {
         val st = currentState() ?: return null
         val human = _uiState.value.humanId ?: return null
-        if (st.phase != CariocaPhase.PLAYING || st.currentPlayer != human) return null
+        if (st.phase != CariocaPhase.PLAYING || st.stage != Stage.ACTIONS || st.currentPlayer != human) {
+            return null
+        }
         return CariocaBot.findLayOff(st, human)
     }
 
