@@ -81,6 +81,8 @@ class GameViewModel @Inject constructor(
     private val rng = java.util.Random()
     private var botJob: Job? = null
     private var turnTimerJob: Job? = null
+    /** Pausa del juego mientras dura la animación de llegada (pulso) de la carta. */
+    private var pauseJob: Job? = null
 
     init {
         startGame()
@@ -89,6 +91,8 @@ class GameViewModel @Inject constructor(
     fun startGame(ruleset: CariocaRuleset = CariocaRuleset(), seed: Long? = null) {
         botJob?.cancel()
         turnTimerJob?.cancel()
+        pauseJob?.cancel()
+        pauseJob = null
         turnTimerJob = null
         val gameSeed = seed ?: rng.nextLong()
         viewModelScope.launch {
@@ -191,7 +195,29 @@ class GameViewModel @Inject constructor(
         val transition = CariocaGame.perform(st, action)
         applyTransition(transition)
         syncTurnTimer()
-        runBotsIfNeeded()
+        // Descarte y lay-off del humano animan la carta hasta su target real:
+        // el juego queda pausado hasta que termina el pulso de llegada para que
+        // el jugador vea dónde aterrizó antes de que avance el turno/bots.
+        if (action is DiscardAction || action is LayOffAction) {
+            pauseForArrivalPulse()
+        } else {
+            runBotsIfNeeded()
+        }
+    }
+
+    /**
+     * Pausa el avance del juego (bots/turno) hasta que termine el pulso de
+     * llegada de la carta (ARRIVAL_PULSE_PAUSE_MS, en sintonía con la animación
+     * de la UI). Descartar/Lay-off dejan de avanzar durante ese lapso.
+     */
+    private fun pauseForArrivalPulse() {
+        botJob?.cancel()
+        pauseJob?.cancel()
+        pauseJob = viewModelScope.launch(dispatchers.main) {
+            delay(ARRIVAL_PULSE_PAUSE_MS)
+            pauseJob = null
+            runBotsIfNeeded()
+        }
     }
 
     /** Aplica una transición, captura eventos RoundEnd y actualiza stats. */
