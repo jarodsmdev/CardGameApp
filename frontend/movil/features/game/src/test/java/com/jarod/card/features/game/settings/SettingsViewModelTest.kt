@@ -1,5 +1,6 @@
 package com.jarod.card.features.game.settings
 
+import com.jarod.card.core.theme.ThemePreference
 import com.jarod.card.features.game.cardskin.BackDesign
 import com.jarod.card.features.game.cardskin.CardSkin
 import com.jarod.card.features.game.cardskin.CardSkinStore
@@ -24,8 +25,25 @@ class SettingsViewModelTest {
         }
     }
 
-    private fun newVm(skinStore: FakeSkinStore = FakeSkinStore(), handStore: FakeHandStore = FakeHandStore()) =
-        SettingsViewModel(skinStore, handStore)
+    private class FakeThemeStore(
+        var stored: ThemePreference = ThemePreference.SYSTEM
+    ) : ThemePreferenceStore {
+        private val flow = kotlinx.coroutines.flow.MutableStateFlow(stored)
+        override val preference: kotlinx.coroutines.flow.StateFlow<ThemePreference> = flow
+
+        override fun read(): ThemePreference = stored
+
+        override fun save(preference: ThemePreference) {
+            stored = preference
+            flow.value = preference
+        }
+    }
+
+    private fun newVm(
+        skinStore: FakeSkinStore = FakeSkinStore(),
+        handStore: FakeHandStore = FakeHandStore(),
+        themeStore: FakeThemeStore = FakeThemeStore()
+    ) = SettingsViewModel(skinStore, handStore, themeStore)
 
     @Test
     fun `el skin por defecto es mazo 1 rojo, mazo 2 negro, clásico y a color`() {
@@ -103,5 +121,27 @@ class SettingsViewModelTest {
         assertEquals(DominantHand.LEFT, vm.dominantHand.value)
         assertEquals(DominantHand.LEFT, store.stored)
         assertEquals(CardSkin(), vm.skin.value)
+    }
+
+    @Test
+    fun `la preferencia de apariencia por defecto es sistema`() {
+        val vm = newVm()
+        assertEquals(ThemePreference.SYSTEM, vm.themePreference.value)
+    }
+
+    @Test
+    fun `seleccionar apariencia oscura actualiza y persiste`() {
+        val store = FakeThemeStore()
+        val vm = newVm(themeStore = store)
+        vm.selectThemePreference(ThemePreference.DARK)
+        assertEquals(ThemePreference.DARK, vm.themePreference.value)
+        assertEquals(ThemePreference.DARK, store.stored)
+        assertEquals(ThemePreference.DARK, store.preference.value)
+    }
+
+    @Test
+    fun `cargar la apariencia guardada del almacén`() {
+        val vm = newVm(themeStore = FakeThemeStore(ThemePreference.LIGHT))
+        assertEquals(ThemePreference.LIGHT, vm.themePreference.value)
     }
 }

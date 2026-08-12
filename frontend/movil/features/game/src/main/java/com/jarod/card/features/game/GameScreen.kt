@@ -75,6 +75,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
@@ -165,6 +166,7 @@ private fun BoxScope.CountBadge(
         modifier = Modifier
             .align(Alignment.TopEnd)
             .offset(x = offsetX, y = offsetY)
+            .shadow(3.dp, CircleShape, clip = false)
             .background(DiscardBadgeRed, CircleShape)
             .padding(horizontal = 7.dp, vertical = 1.dp),
         color = Color.White,
@@ -934,15 +936,19 @@ private fun MeldRow(
         meld.cards.forEach { card ->
             // Reporta la posición real de cada carta: el overlay la usa como target
             // cuando la carta voladora aterriza en esta combinación (TODO.md).
-            CardFace(
-                card = card,
-                width = 44.dp,
-                height = 62.dp,
-                skin = skin,
-                modifier = Modifier.onGloballyPositioned {
-                    onCardPosition(card.id, it.localToRoot(Offset.Zero))
-                }
-            )
+            // key(card.id): al llegar cartas nuevas se compone un nodo nuevo, igual
+            // que en la mano (en Android 10 el texto reutilizado no se repinta).
+            key(card.id) {
+                CardFace(
+                    card = card,
+                    width = 44.dp,
+                    height = 62.dp,
+                    skin = skin,
+                    modifier = Modifier.onGloballyPositioned {
+                        onCardPosition(card.id, it.localToRoot(Offset.Zero))
+                    }
+                )
+            }
         }
     }
 }
@@ -1029,17 +1035,21 @@ private fun DiscardPile(
             }
         ) {
             if (top != null) {
-                CardFace(
-                    card = top,
-                    skin = skin,
-                    modifier = Modifier
-                        .clickable(enabled = canDrawDiscard, onClick = onDrawDiscard)
-                        .graphicsLayer {
-                            val s = if (canDrawDiscard) 1f + 0.04f * pulse else 1f
-                            scaleX = s
-                            scaleY = s
-                        }
-                )
+                // key(top.id): al cambiar la carta del pozo se compone un nodo nuevo
+                // (en Android 10 el texto del número no se repinta si se reutiliza).
+                key(top.id) {
+                    CardFace(
+                        card = top,
+                        skin = skin,
+                        modifier = Modifier
+                            .clickable(enabled = canDrawDiscard, onClick = onDrawDiscard)
+                            .graphicsLayer {
+                                val s = if (canDrawDiscard) 1f + 0.04f * pulse else 1f
+                                scaleX = s
+                                scaleY = s
+                            }
+                    )
+                }
             } else {
                 CardBack(width = 44.dp, height = 62.dp, skin = skin)
             }

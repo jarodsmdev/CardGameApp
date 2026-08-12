@@ -1,6 +1,7 @@
 package com.jarod.card.features.game.settings
 
 import androidx.lifecycle.ViewModel
+import com.jarod.card.core.theme.ThemePreference
 import com.jarod.card.features.game.cardskin.BackDesign
 import com.jarod.card.features.game.cardskin.CardSkin
 import com.jarod.card.features.game.cardskin.CardSkinStore
@@ -15,7 +16,8 @@ import kotlinx.coroutines.flow.asStateFlow
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val skinStore: CardSkinStore,
-    private val handStore: DominantHandStore
+    private val handStore: DominantHandStore,
+    private val themeStore: ThemePreferenceStore
 ) : ViewModel() {
 
     private val _skin = MutableStateFlow(skinStore.read())
@@ -23,6 +25,8 @@ class SettingsViewModel @Inject constructor(
 
     private val _dominantHand = MutableStateFlow(handStore.read())
     val dominantHand: StateFlow<DominantHand> = _dominantHand.asStateFlow()
+
+    val themePreference: StateFlow<ThemePreference> = themeStore.preference
 
     fun selectDeck0Back(design: BackDesign) = updateSkin { it.copy(deck0 = design) }
 
@@ -35,6 +39,10 @@ class SettingsViewModel @Inject constructor(
     fun selectDominantHand(hand: DominantHand) {
         _dominantHand.value = hand
         handStore.save(hand)
+    }
+
+    fun selectThemePreference(preference: ThemePreference) {
+        themeStore.save(preference)
     }
 
     private fun updateSkin(transform: (CardSkin) -> CardSkin) {
