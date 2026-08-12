@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jarod.card.core.theme.ThemePreference
 import com.jarod.card.core.ui.ConfirmDialog
 import com.jarod.card.domain.core.JokerCard
 import com.jarod.card.domain.core.JokerType
@@ -58,6 +59,7 @@ fun SettingsScreen(
 ) {
     val skin by viewModel.skin.collectAsStateWithLifecycle()
     val dominantHand by viewModel.dominantHand.collectAsStateWithLifecycle()
+    val themePreference by viewModel.themePreference.collectAsStateWithLifecycle()
 
     var showExitDialog by remember { mutableStateOf(false) }
     BackHandler(enabled = !showExitDialog) { showExitDialog = true }
@@ -156,6 +158,16 @@ fun SettingsScreen(
             isSelected = { it == dominantHand },
             preview = {},
             onSelect = viewModel::selectDominantHand
+        )
+
+        DesignSection(
+            title = "Apariencia",
+            subtitle = "Elige entre modo claro, oscuro o seguir al sistema.",
+            options = ThemePreference.entries,
+            label = { it.label },
+            isSelected = { it == themePreference },
+            preview = {},
+            onSelect = viewModel::selectThemePreference
         )
     }
 }
