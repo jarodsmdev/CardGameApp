@@ -199,6 +199,40 @@ class GameViewModelTest {
     }
 
     @Test
+    fun `tras descartar el juego queda pausado hasta que termina el pulso de llegada`() {
+        val vm = newViewModel()
+        advanceToHumanTurn(vm)
+        val human = vm.uiState.value.humanId!!
+        if (vm.uiState.value.state!!.stage == Stage.DRAW) vm.drawFromStock()
+        advance()
+
+        val hand = vm.uiState.value.state!!.hands[human]!!
+        val card = hand.first { it !is com.jarod.card.domain.core.JokerCard }
+
+        vm.discard(card.id)
+        val afterDiscard = vm.uiState.value.state!!
+        assertTrue("El turno pasa al siguiente jugador", afterDiscard.currentPlayer != human)
+        val nextPlayer = afterDiscard.currentPlayer!!
+        val nextHandSize = afterDiscard.hands[nextPlayer]!!.size
+
+        // Antes de que termine el pulso de llegada el juego sigue pausado: el
+        // siguiente bot no ha actuado todavía.
+        mainRule.testDispatcher.scheduler.advanceTimeBy(ARRIVAL_PULSE_PAUSE_MS - 500L)
+        val during = vm.uiState.value.state!!
+        assertEquals("El siguiente jugador no cambia durante la pausa", nextPlayer, during.currentPlayer)
+        assertEquals("El bot no roba ni descarta durante la pausa", nextHandSize, during.hands[nextPlayer]!!.size)
+        assertFalse("El bot aún no está pensando", vm.uiState.value.botsThinking)
+
+        // Al terminar el pulso el juego se reanuda.
+        mainRule.testDispatcher.scheduler.advanceTimeBy(ARRIVAL_PULSE_PAUSE_MS + 500L)
+        val resumed = vm.uiState.value.state!!
+        assertTrue(
+            "El juego avanzó tras el pulso",
+            resumed.currentPlayer != nextPlayer || resumed.hands[nextPlayer]!!.size != nextHandSize
+        )
+    }
+
+    @Test
     fun `proposeLayOff devuelve null fuera del turno del humano`() {
         val vm = newViewModel()
         assertNull(vm.proposeLayOff())

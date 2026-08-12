@@ -40,6 +40,7 @@ private val CardRed = Color(0xFFC62828)
 private val CardBlack = Color(0xFF1B1B1B)
 private val CardWhite = Color(0xFFFFFFFF)
 private val CardBorder = Color(0xFFC4C4C4)
+internal val SelectionGold = Color(0xFFC9A227)
 private val JokerPurple = Color(0xFF6A1B9A)
 private val JokerGray = Color(0xFF757575)
 
@@ -153,7 +154,9 @@ fun CardFace(
     modifier: Modifier = Modifier,
     width: Dp = 44.dp,
     height: Dp = 62.dp,
-    skin: CardSkin = CardSkin()
+    skin: CardSkin = CardSkin(),
+    /** Borde de selección dorado dibujado sobre la propia carta (recortado a ella). */
+    selected: Boolean = false
 ) {
     val isJoker = card is JokerCard
     val textColor = when (card) {
@@ -169,7 +172,11 @@ fun CardFace(
             .width(width)
             .height(height)
             .background(CardWhite, shape)
-            .border(1.dp, skin.front.borderColor(), shape)
+            .border(
+                width = if (selected) 2.dp else 1.dp,
+                color = if (selected) SelectionGold else skin.front.borderColor(),
+                shape = shape
+            )
             .padding(4.dp)
     ) {
         if (isJoker) {

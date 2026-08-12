@@ -69,6 +69,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -130,17 +131,28 @@ import com.jarod.card.features.game.stats.CumulativeStats
 import com.jarod.card.features.game.stats.GameStats
 import com.jarod.card.features.game.stats.RoundStats
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private val DiscardBadgeRed = Color(0xFFC62828)
 private val PlayedCheckGreen = Color(0xFF2E7D32)
-private val HandSelectionGold = Color(0xFFC9A227)
 private val TimeoutBorderRed = Color(0xFFD32F2F)
 private val MedalGold = Color(0xFFC9A227)
 private val MedalSilver = Color(0xFF9CA3AF)
 private val MedalBronze = Color(0xFFB07C3E)
 private val MedalFourth = Color(0xFF6B7280)
+
+/**
+ * El juego se pausa hasta que termina el pulso de llegada de la carta voladora
+ * (vuelo 300 ms + pulso 1200 ms + fade 150 ms). Debe mantenerse en sintonía con
+ * FlyingCardView y PulsingArrivalBorder; lo comparte GameViewModel para retrasar
+ * el avance del turno/bots hasta que el jugador vea dónde aterrizó la carta.
+ */
+internal const val ARRIVAL_PULSE_PAUSE_MS = 1650L
+
+/** Duración del aviso de acción inválida en el texto informativo (p.ej. JOKER). */
+private const val DISCARD_NOTICE_MS = 2000L
 
 @Composable
 private fun BoxScope.CountBadge(
@@ -406,7 +418,10 @@ private fun FlyingCardView(
 
 /** Borde pulsante sutil que señala dónde terminó la carta (≈1.2 s). */
 @Composable
-private fun PulsingArrivalBorder() {
+private fun PulsingArrivalBorder(
+    width: Dp = 44.dp,
+    height: Dp = 62.dp
+) {
     val transition = rememberInfiniteTransition(label = "arrivalPulse")
     val pulse by transition.animateFloat(
         initialValue = 0.35f,
@@ -419,8 +434,10 @@ private fun PulsingArrivalBorder() {
     )
     Box(
         modifier = Modifier
-            .fillMaxSize()
-            .border(3.dp, HandSelectionGold.copy(alpha = pulse), RoundedCornerShape(6.dp))
+            // Tamaño explícito de la carta: el borde queda recortado a ella y no
+            // depende del tamaño que reporte el contenedor (borde no se desborda).
+            .size(width, height)
+            .border(3.dp, SelectionGold.copy(alpha = pulse), RoundedCornerShape(6.dp))
     )
 }
 
@@ -542,6 +559,27 @@ private fun CariocaBoard(
     // Estado del arrastre para hints contextuales de ActionBar.
     var dragActive by remember { mutableStateOf(false) }
 
+    // Aviso de descarte inválido (p.ej. JOKER): se muestra en el texto
+    // informativo y vuelve al hint por defecto al cabo de un momento.
+    var discardNotice by remember { mutableStateOf<String?>(null) }
+    val noticeScope = rememberCoroutineScope()
+    fun showDiscardNotice(message: String) {
+        discardNotice = message
+        noticeScope.launch {
+            delay(DISCARD_NOTICE_MS)
+            if (discardNotice == message) discardNotice = null
+        }
+    }
+
+    // El juego se pausa mientras dura el vuelo + pulso de llegada de la carta:
+    // se bloquea la interacción aquí (lay-off deja el turno en el humano) y el
+    // ViewModel retrasa el avance de bots/turno ese mismo tiempo (ARRIVAL_PULSE_PAUSE_MS).
+    var interactionLocked by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    fun releaseInteractionLock() {
+        interactionLocked = false
+    }
+
     // Sistema de cartas voladoras: anima cada carta al target real medido en el
     // layout final (pozo o combinación). El controlador es común para descarte
     // y lay-off (TODO.md: target dinámico + feedback de llegada).
@@ -552,13 +590,20 @@ private fun CariocaBoard(
     fun currentCard(cardId: String): Card? =
         currentSt.hands[currentHumanId]?.firstOrNull { it.id == cardId }
 
-    // Descarte: vuelo al pozo desde el slot de la mano, luego la acción.
+    // Descarte: vuelo al pozo desde el slot de la mano, luego la acción. El
+    // juego queda pausado (bloqueo local + retardo del ViewModel) hasta que
+    // termine el pulso de llegada.
     val discardRequest: (String) -> Unit = { cardId ->
         val card = currentCard(cardId)
         if (card != null) {
             val start = flying.positions[cardId]
             if (start != null) {
+                interactionLocked = true
                 flying.launch(card, start)
+                scope.launch {
+                    delay(ARRIVAL_PULSE_PAUSE_MS)
+                    releaseInteractionLock()
+                }
             }
             onDiscard(cardId)
         }
@@ -571,8 +616,14 @@ private fun CariocaBoard(
         if (action != null) {
             val card = currentCard(action.cardId)
             val start = card?.let { flying.positions[it.id] }
-            if (card != null && start != null) {
+            val launched = card != null && start != null
+            if (launched) {
+                interactionLocked = true
                 flying.launch(card, start)
+                scope.launch {
+                    delay(ARRIVAL_PULSE_PAUSE_MS)
+                    releaseInteractionLock()
+                }
             }
             onPerformLayOff(action)
         }
@@ -595,7 +646,10 @@ private fun CariocaBoard(
                 )
             }
 
-            ActionBar(st, humanId, myTurn, selectedCardId, dragActive, onMeld, layOffRequest)
+            ActionBar(st, humanId, myTurn, selectedCardId, dragActive, onMeld, layOffRequest,
+                notice = discardNotice,
+                dominantHand = dominantHand,
+                interactionEnabled = !interactionLocked)
 
             StockDiscardRow(
                 st, myTurn, skin, dominantHand, onDrawStock, onDrawDiscard,
@@ -605,10 +659,12 @@ private fun CariocaBoard(
             HandRow(
                 st, humanId, myTurn, skin, onDiscardRequest = discardRequest,
                 onCanDiscard = onCanDiscard,
+                onDiscardRejected = { showDiscardNotice("No puedes descartar esta carta") },
                 onCardPosition = flying::reportPosition,
                 selectedCardId = selectedCardId,
                 onSelectionChange = { selectedCardId = it },
-                onDragActiveChange = { dragActive = it }
+                onDragActiveChange = { dragActive = it },
+                interactionEnabled = !interactionLocked
             )
 
             if (human.isEmpty()) {
@@ -1002,8 +1058,18 @@ private fun ActionBar(
     selectedCardId: String?,
     dragActive: Boolean,
     onMeld: () -> Unit,
-    onLayOff: () -> Unit
+    onLayOff: () -> Unit,
+    /** Aviso temporal que reemplaza al hint (p.ej. descarte de JOKER inválido). */
+    notice: String? = null,
+    dominantHand: DominantHand,
+    /** False mientras el juego está pausado por la animación de llegada de una carta. */
+    interactionEnabled: Boolean = true
 ) {
+    // Botones y texto se alinean según la mano dominante (igual que mazo/pozo).
+    val buttonsArrangement = Arrangement.spacedBy(
+        8.dp,
+        if (dominantHand == DominantHand.LEFT) Alignment.Start else Alignment.End
+    )
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         if (myTurn && st.stage == Stage.ACTIONS) {
             val human = st.hands[humanId] ?: emptyList()
@@ -1012,6 +1078,7 @@ private fun ActionBar(
                 CariocaBot.findMeldForRound(human, round) != null
             val canLayOff = CariocaBot.findLayOff(st, humanId) != null
             val hint = when {
+                notice != null -> notice
                 dragActive -> "Arrastra hacia arriba para descartar · hacia abajo para cancelar"
                 selectedCardId != null ->
                     "Arrastra hacia arriba o doble tap para descartar"
@@ -1021,30 +1088,40 @@ private fun ActionBar(
             Text(
                 text = hint,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.End
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = buttonsArrangement
             ) {
-                Button(onClick = onMeld, enabled = canMeld) {
-                    Text("Bajarse")
+                if (canMeld) {
+                    Button(onClick = onMeld, enabled = interactionEnabled) {
+                        Text("Bajarse")
+                    }
                 }
-                Button(onClick = onLayOff, enabled = canLayOff) {
-                    Text("Añadir a mesa")
+                if (canLayOff) {
+                    Button(onClick = onLayOff, enabled = interactionEnabled) {
+                        Text("Añadir a mesa")
+                    }
                 }
             }
         } else if (myTurn && st.stage == Stage.DRAW) {
             Text(
                 text = "Roba una carta: toca el mazo o el pozo",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.End
             )
         } else if (!myTurn) {
             Text(
                 text = "Esperando a los demás…",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.End
             )
         }
     }
@@ -1058,10 +1135,13 @@ private fun HandRow(
     skin: CardSkin,
     onDiscardRequest: (String) -> Unit,
     onCanDiscard: (String) -> Boolean,
+    onDiscardRejected: () -> Unit,
     onCardPosition: (String, Offset) -> Unit,
     selectedCardId: String?,
     onSelectionChange: (String?) -> Unit,
-    onDragActiveChange: (Boolean) -> Unit
+    onDragActiveChange: (Boolean) -> Unit,
+    /** False mientras el juego está pausado por la animación de llegada de una carta. */
+    interactionEnabled: Boolean = true
 ) {
     val hand = st.hands[humanId] ?: emptyList()
     if (hand.isEmpty()) return
@@ -1090,7 +1170,7 @@ private fun HandRow(
     val cardWidth = 44.dp
     val cardHeight = 62.dp
     val liftHeight = 18.dp
-    val discardEnabled = myTurn && st.stage == Stage.ACTIONS
+    val discardEnabled = myTurn && st.stage == Stage.ACTIONS && interactionEnabled
     val springSpec = spring<Float>(
         dampingRatio = Spring.DampingRatioMediumBouncy,
         stiffness = Spring.StiffnessMedium
@@ -1217,6 +1297,8 @@ private fun HandRow(
                                 break
                             }
                             if (pressIndex < 0) break
+                            // Pausa por animación de llegada: se corta el gesto en curso.
+                            if (!interactionEnabled) break
                             if (!dragging) {
                                 val dx = c.position.x - down.position.x
                                 val dy = c.position.y - down.position.y
@@ -1319,6 +1401,8 @@ private fun HandRow(
                     if (isConfirmed) {
                         if (onCanDiscard(cardId)) {
                             onDiscardRequest(cardId)
+                        } else {
+                            onDiscardRejected()
                         }
                         confirmedCardId = null
                         onSelectionChange(null)
@@ -1376,15 +1460,11 @@ private fun HandRow(
                         width = cardWidth,
                         height = cardHeight,
                         skin = skin,
+                        // Borde de selección dorado dibujado sobre la propia carta
+                        // (recortado a sus dimensiones: ya no se desborda al contenedor).
+                        selected = isSelected || isDragged,
                         modifier = Modifier
                     )
-                    if (isSelected || isDragged) {
-                        Box(
-                            Modifier
-                                .matchParentSize()
-                                .border(2.dp, HandSelectionGold, RoundedCornerShape(6.dp))
-                        )
-                    }
                 }
             }
         }
