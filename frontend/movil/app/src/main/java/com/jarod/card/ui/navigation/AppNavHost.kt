@@ -13,12 +13,14 @@ import com.jarod.card.features.friends.FriendsScreen
 import com.jarod.card.features.game.GameScreen
 import com.jarod.card.features.game.settings.SettingsScreen
 import com.jarod.card.features.lobby.LobbyScreen
+import com.jarod.card.features.lobby.PersonalizarJuegoScreen
 
 object AppRoute {
     const val LOGIN = "login"
     const val LOBBY = "lobby"
     const val FRIENDS = "friends"
     const val SETTINGS = "settings"
+    const val CUSTOMIZE = "customize"
     const val GAME = "game/{roomId}"
     fun game(roomId: String) = "game/$roomId"
 }
@@ -40,8 +42,14 @@ fun AppNavHost(modifier: Modifier = Modifier) {
         }
         composable(AppRoute.LOBBY) {
             LobbyScreen(
-                onOpenGame = { roomId -> navController.navigate(AppRoute.game(roomId)) },
+                onCustomizeGame = { navController.navigate(AppRoute.CUSTOMIZE) },
                 onOpenSettings = { navController.navigate(AppRoute.SETTINGS) }
+            )
+        }
+        composable(AppRoute.CUSTOMIZE) {
+            PersonalizarJuegoScreen(
+                onStart = { navController.navigate(AppRoute.game("demo")) },
+                onBack = { navController.popBackStack() }
             )
         }
         composable(AppRoute.SETTINGS) {

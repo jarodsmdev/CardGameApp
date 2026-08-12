@@ -15,6 +15,8 @@ import com.jarod.card.features.game.cardskin.FrontDesign
 import com.jarod.card.features.game.cardskin.JokerStyle
 import com.jarod.card.features.game.settings.DominantHand
 import com.jarod.card.features.game.settings.DominantHandStore
+import com.jarod.card.features.game.settings.GameSetup
+import com.jarod.card.features.game.settings.GameSetupStore
 import com.jarod.card.features.game.stats.CumulativeStats
 import com.jarod.card.features.game.stats.GameStatsStore
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -55,6 +57,13 @@ class GameViewModelTest {
         }
     }
 
+    private class FakeSetupStore(var stored: GameSetup = GameSetup()) : GameSetupStore {
+        override fun read(): GameSetup = stored
+        override fun save(setup: GameSetup) {
+            stored = setup
+        }
+    }
+
     private fun provider(): DispatchersProvider =
         DispatchersProvider(main = mainRule.testDispatcher, default = mainRule.testDispatcher, io = mainRule.testDispatcher)
 
@@ -68,10 +77,12 @@ class GameViewModelTest {
     private fun newViewModel(
         ruleset: CariocaRuleset = shortRules(),
         seed: Long = 999L,
-        handStore: FakeHandStore = FakeHandStore()
+        initialRound: Int = 1,
+        handStore: FakeHandStore = FakeHandStore(),
+        setupStore: FakeSetupStore = FakeSetupStore()
     ): GameViewModel {
-        val vm = GameViewModel(provider(), FakeSkinStore(), FakeStatsStore(), handStore)
-        vm.startGame(ruleset, seed)
+        val vm = GameViewModel(provider(), FakeSkinStore(), FakeStatsStore(), handStore, setupStore)
+        vm.startGame(ruleset, seed, initialRound)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         return vm
     }
@@ -98,7 +109,7 @@ class GameViewModelTest {
             front = FrontDesign.DORADO,
             joker = JokerStyle.ORO
         )
-        val vm = GameViewModel(provider(), FakeSkinStore(saved), FakeStatsStore(), FakeHandStore())
+        val vm = GameViewModel(provider(), FakeSkinStore(saved), FakeStatsStore(), FakeHandStore(), FakeSetupStore())
         vm.startGame(shortRules(), 999L)
         advance()
         assertEquals(saved, vm.uiState.value.skin)
@@ -116,7 +127,7 @@ class GameViewModelTest {
     @Test
     fun `al terminar la partida se generan stats y se acumulan en el almacén`() {
         val statsStore = FakeStatsStore()
-        val vm = GameViewModel(provider(), FakeSkinStore(), statsStore, FakeHandStore())
+        val vm = GameViewModel(provider(), FakeSkinStore(), statsStore, FakeHandStore(), FakeSetupStore())
         vm.startGame(shortRules(), 999L)
         advance()
         playUntilEnd(vm)
@@ -359,5 +370,53 @@ class GameViewModelTest {
             advance()
             guard++
         }
+    }
+
+    @Test
+    fun `startGame arranca en la ronda inicial seleccionada`() {
+        val vm = newViewModel(ruleset = CariocaRuleset(), initialRound = 3)
+        val st = vm.uiState.value.state!!
+        assertEquals(2, st.roundIndex)
+        assertEquals(3, st.ruleset.rounds[st.roundIndex].number)
+        assertEquals("La ronda 3 exige 2 escaleras de min 4", 1, st.ruleset.rounds[st.roundIndex].combos.size)
+        assertEquals(2, st.ruleset.rounds[st.roundIndex].combos[0].count)
+    }
+
+    @Test
+    fun `la ronda inicial llega por el setup guardado en Personalizar juego`() {
+        val setup = FakeSetupStore(GameSetup(players = 4, rounds = (1..9).toList(), cutBonusEnabled = false, initialRound = 3))
+        val vm = GameViewModel(provider(), FakeSkinStore(), FakeStatsStore(), FakeHandStore(), setup)
+        advance()
+        assertEquals(2, vm.uiState.value.state!!.roundIndex)
+        assertEquals(3, vm.uiState.value.state!!.ruleset.rounds[vm.uiState.value.state!!.roundIndex].number)
+    }
+
+    @Test
+    fun `startGame aplica el setup guardado (jugadores, rondas y variante corte)`() {
+        val setup = FakeSetupStore(
+            GameSetup(
+                players = 3,
+                rounds = listOf(2, 4, 7),
+                cutBonusEnabled = true,
+                initialRound = 4
+            )
+        )
+        val vm = GameViewModel(provider(), FakeSkinStore(), FakeStatsStore(), FakeHandStore(), setup)
+        advance()
+        val st = vm.uiState.value.state!!
+        assertEquals("Se juegan solo las rondas seleccionadas", 3, st.ruleset.rounds.size)
+        assertEquals("Se usan los números de ronda seleccionados", listOf(2, 4, 7), st.ruleset.rounds.map { it.number })
+        assertEquals("Variante −10 por corte aplicada", -10, st.ruleset.scoringWinner)
+        assertEquals("3 jugadores (humano + 2 bots)", 3, st.players.size)
+        assertEquals("Arranca en la ronda 4 (índice 1)", 1, st.roundIndex)
+        assertEquals(4, st.ruleset.rounds[st.roundIndex].number)
+    }
+
+    @Test
+    fun `sin ronda seleccionada la partida arranca en la ronda 1`() {
+        val vm = newViewModel()
+        val st = vm.uiState.value.state!!
+        assertEquals(0, st.roundIndex)
+        assertEquals(1, st.ruleset.rounds[st.roundIndex].number)
     }
 }

@@ -18,7 +18,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
 fun LobbyScreen(
-    onOpenGame: (String) -> Unit,
+    onCustomizeGame: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: LobbyViewModel = hiltViewModel(),
     onOpenSettings: () -> Unit = {}
@@ -42,7 +42,7 @@ fun LobbyScreen(
             text = "Dispatcher IO: ${uiState.dispatcherLabel}",
             style = MaterialTheme.typography.bodySmall
         )
-        Button(onClick = { onOpenGame("demo") }) {
+        Button(onClick = onCustomizeGame) {
             Text("Abrir partida demo")
         }
         OutlinedButton(onClick = onOpenSettings) {

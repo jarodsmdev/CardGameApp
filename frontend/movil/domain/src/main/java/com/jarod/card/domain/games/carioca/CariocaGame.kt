@@ -29,20 +29,28 @@ object CariocaGame : Game<CariocaState> {
     fun createGame(
         players: List<PlayerId>,
         ruleset: CariocaRuleset = CariocaRuleset(),
-        seed: Long = System.currentTimeMillis()
+        seed: Long = System.currentTimeMillis(),
+        initialRound: Int = 1
     ): GameTransition<CariocaState> {
         require(players.size in ruleset.maxPlayers) { "Carioca: 2-4 jugadores" }
+        require(initialRound in 1..ruleset.rounds.size) { "Carioca: ronda inicial fuera de rango" }
         val events = mutableListOf<GameEvent>()
+        // Ronda inicial (debug): se arranca en la ronda indicada respetando la
+        // configuración real. El dealer se calcula como si las rondas previas se
+        // hubieran jugado (el dealer rota en contra de las agujas del reloj).
+        val n = players.size
+        val startingDealer = ((0 - (initialRound - 1)) % n + n) % n
         var st = CariocaState(
             ruleset = ruleset,
             seed = seed,
             phase = CariocaPhase.PREPARING,
             players = players,
-            dealerSeat = 0,
+            roundIndex = initialRound - 1,
+            dealerSeat = startingDealer,
             scores = players.associate { it to 0 },
             roundsWon = players.associate { it to 0 }
         )
-        // Primera ronda: deal
+        // Reparto inicial: deal (misma lógica que cualquier ronda)
         st = dealRound(st, events)
         return GameTransition(st.copy(phase = CariocaPhase.PLAYING), events.toList())
     }

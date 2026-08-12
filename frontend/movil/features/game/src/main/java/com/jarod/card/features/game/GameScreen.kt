@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Loop
 import androidx.compose.material.icons.filled.TrackChanges
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -82,6 +83,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -111,6 +113,7 @@ import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarod.card.core.ui.ConfirmDialog
+import com.jarod.card.core.debug.DEBUG_TOOLS_ENABLED
 import com.jarod.card.core.util.formatClock
 import com.jarod.card.core.util.formatDuration
 import com.jarod.card.core.util.plural
@@ -558,6 +561,11 @@ private fun CariocaBoard(
         if (!canSelect && selectedCardId != null) selectedCardId = null
     }
 
+    // Inspección de las manos de los bots (solo DEBUG_TOOLS_ENABLED): al hacer
+    // clic sobre cualquier card de un bot se abre una vista con las cartas de
+    // todos los bots, reflejando el estado real de cada mano.
+    var showBotsInspection by remember { mutableStateOf(false) }
+
     // Estado del arrastre para hints contextuales de ActionBar.
     var dragActive by remember { mutableStateOf(false) }
 
@@ -635,7 +643,7 @@ private fun CariocaBoard(
         Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
             TopInfo(st, round, myTurn, botsThinking, error, roomId, secondsLeft)
 
-            OpponentsRow(st, humanId)
+            OpponentsRow(st, humanId, onInspectBots = { showBotsInspection = true })
 
             Spacer(Modifier.height(8.dp))
 
@@ -683,6 +691,14 @@ private fun CariocaBoard(
         }
 
         FlyingCardsOverlay(controller = flying, skin = skin, modifier = Modifier.matchParentSize())
+
+        if (DEBUG_TOOLS_ENABLED && showBotsInspection) {
+            BotsInspectionDialog(
+                st = st,
+                humanId = humanId,
+                onDismiss = { showBotsInspection = false }
+            )
+        }
     }
 }
 
@@ -805,7 +821,7 @@ private fun TopInfo(
 }
 
 @Composable
-private fun OpponentsRow(st: CariocaState, humanId: PlayerId) {
+private fun OpponentsRow(st: CariocaState, humanId: PlayerId, onInspectBots: () -> Unit) {
     val opponents = st.players.filter { it != humanId }
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -820,6 +836,7 @@ private fun OpponentsRow(st: CariocaState, humanId: PlayerId) {
                 melded = p in st.meldedThisRound,
                 played = p in st.playedThisLap,
                 isTurn = st.currentPlayer == p && st.phase == CariocaPhase.PLAYING,
+                onInspect = if (DEBUG_TOOLS_ENABLED) onInspectBots else null,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -835,15 +852,19 @@ private fun PlayerCard(
     melded: Boolean,
     played: Boolean,
     isTurn: Boolean,
+    onInspect: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val pulse by rememberPulse()
     Surface(
         modifier = modifier
+            .then(if (onInspect != null) Modifier.clickable(onClick = onInspect) else Modifier)
             .graphicsLayer {
                 val s = if (isTurn) 1f + 0.03f * pulse else 1f
                 scaleX = s
                 scaleY = s
+                // Android 10: el pulso de escala no debe re-dibujar los glifos escalados.
+                compositingStrategy = CompositingStrategy.Offscreen
             },
         shape = RoundedCornerShape(10.dp),
         color = if (isTurn) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
@@ -868,6 +889,53 @@ private fun PlayerCard(
             CountBadge(handCount, offsetX = 4.dp, offsetY = (-6).dp)
         }
     }
+}
+
+/**
+ * Vista de inspección (solo DEBUG_TOOLS_ENABLED): se abre al hacer clic sobre
+ * cualquier card de un bot y muestra la mano real de todos los bots, una fila
+ * horizontal por bot, etiquetada con su nombre. Refleja el estado actual.
+ */
+@Composable
+private fun BotsInspectionDialog(
+    st: CariocaState,
+    humanId: PlayerId,
+    onDismiss: () -> Unit
+) {
+    val bots = st.players.filter { it != humanId }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cerrar") }
+        },
+        title = { Text("Cartas de los bots") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                bots.forEach { bot ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = nameOf(bot, humanId),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.width(52.dp)
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            (st.hands[bot] ?: emptyList()).forEach { card ->
+                                CardFace(card, width = 32.dp, height = 46.dp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
 }
 
 @Composable
@@ -1047,6 +1115,9 @@ private fun DiscardPile(
                                 val s = if (canDrawDiscard) 1f + 0.04f * pulse else 1f
                                 scaleX = s
                                 scaleY = s
+                                // Android 10: el pulso de escala no debe re-dibujar los
+                                // glifos escalados (HWUI puede perder el color del número).
+                                compositingStrategy = CompositingStrategy.Offscreen
                             }
                     )
                 }
@@ -1463,6 +1534,11 @@ private fun HandRow(
                             scaleY = 1f + 0.07f * lift
                             shadowElevation = shadowPx * lift
                             shape = RoundedCornerShape(6.dp)
+                            // Android 10: escalar un nodo que contiene texto puede perder
+                            // el color del número (se ve blanco sobre la carta blanca).
+                            // Offscreen rasteriza el contenido a identidad y la escala se
+                            // aplica a la textura, sin re-dibujar los glifos escalados.
+                            compositingStrategy = CompositingStrategy.Offscreen
                         }
                 ) {
                     CardFace(

@@ -21,10 +21,13 @@ import com.jarod.card.domain.games.carioca.MeldAction
 import com.jarod.card.domain.games.carioca.RoundEnd
 import com.jarod.card.domain.games.carioca.Stage
 import com.jarod.card.domain.games.carioca.StartNextRound
+import com.jarod.card.domain.games.carioca.defaultRounds
 import com.jarod.card.features.game.cardskin.CardSkin
 import com.jarod.card.features.game.cardskin.CardSkinStore
 import com.jarod.card.features.game.settings.DominantHand
 import com.jarod.card.features.game.settings.DominantHandStore
+import com.jarod.card.features.game.settings.GameSetup
+import com.jarod.card.features.game.settings.GameSetupStore
 import com.jarod.card.features.game.stats.CumulativeStats
 import com.jarod.card.features.game.stats.GameStats
 import com.jarod.card.features.game.stats.GameStatsStore
@@ -68,7 +71,8 @@ class GameViewModel @Inject constructor(
     private val dispatchers: DispatchersProvider,
     private val skinStore: CardSkinStore,
     private val statsStore: GameStatsStore,
-    private val handStore: DominantHandStore
+    private val handStore: DominantHandStore,
+    private val setupStore: GameSetupStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
@@ -88,16 +92,24 @@ class GameViewModel @Inject constructor(
         startGame()
     }
 
-    fun startGame(ruleset: CariocaRuleset = CariocaRuleset(), seed: Long? = null) {
+    /**
+     * Inicia la partida. Sin reglas explícitas usa la configuración guardada en
+     * "Personalizar juego" (jugadores, rondas seleccionadas, variantes y ronda
+     * inicial de debug).
+     */
+    fun startGame(ruleset: CariocaRuleset? = null, seed: Long? = null, initialRound: Int? = null) {
         botJob?.cancel()
         turnTimerJob?.cancel()
         pauseJob?.cancel()
         pauseJob = null
         turnTimerJob = null
+        val setup = setupStore.read()
+        val finalRuleset = ruleset ?: buildRuleset(setup)
+        val finalInitialRound = initialRound ?: startRoundIndex(finalRuleset, setup)
+        val players = listOf(PlayerId("tu")) + (1 until setup.players).map { PlayerId("bot$it") }
         val gameSeed = seed ?: rng.nextLong()
         viewModelScope.launch {
-            val players = listOf(PlayerId("tu")) + (1..3).map { PlayerId("bot$it") }
-            val transition = CariocaGame.createGame(players, ruleset, gameSeed)
+            val transition = CariocaGame.createGame(players, finalRuleset, gameSeed, finalInitialRound)
             _uiState.value = _uiState.value.copy(
                 state = transition.state,
                 humanId = players.first(),
@@ -113,6 +125,18 @@ class GameViewModel @Inject constructor(
             syncTurnTimer()
             runBotsIfNeeded()
         }
+    }
+
+    /** Ruleset desde la configuración de "Personalizar juego" (FR-SAL-01/FR-CAR-05). */
+    private fun buildRuleset(setup: GameSetup): CariocaRuleset = CariocaRuleset(
+        rounds = defaultRounds.filter { it.number in setup.rounds },
+        scoringWinner = if (setup.cutBonusEnabled) -10 else 0
+    )
+
+    /** Índice 1-based de la ronda inicial (número del catálogo) dentro del ruleset. */
+    private fun startRoundIndex(ruleset: CariocaRuleset, setup: GameSetup): Int {
+        val idx = ruleset.rounds.indexOfFirst { it.number == setup.initialRound }
+        return if (idx >= 0) idx + 1 else 1
     }
 
     // ──────────────────────────────────────────────────────────────

@@ -417,4 +417,50 @@ class CariocaGameTest {
         assertTrue(steps < 30000)
         println("Pasos: $steps, Ganador: ${st.winner}, Scores: ${st.scores}")
     }
+
+    // ── Ronda inicial (debug) ─────────────────────────────────────────
+
+    @Test
+    fun `createGame arranca en la ronda inicial seleccionada`() {
+        val res = CariocaGame.createGame(players, rules, 12345L, initialRound = 3)
+        val st = res.state
+        assertEquals(2, st.roundIndex)
+        assertEquals(3, st.ruleset.rounds[st.roundIndex].number)
+        // Configuración real de la ronda 3: 2 escaleras de min 4 (un solo ComboSpec con count=2)
+        val combo = st.ruleset.rounds[st.roundIndex].combos.single()
+        assertEquals(ComboType.RUN, combo.type)
+        assertEquals(2, combo.count)
+        assertEquals(CariocaPhase.PLAYING, st.phase)
+        assertEquals(12, st.hands[players.first()]!!.size)
+    }
+
+    @Test
+    fun `createGame con ronda inicial respeta el reparto de la ronda (mismo seed que el flujo normal)`() {
+        // Una partida normal que juega hasta la ronda 3 reparte el roundIndex=2.
+        // Arrancar directamente en initialRound=3 debe repartir lo mismo con el
+        // mismo seed, porque dealRound usa seed + roundIndex.
+        val res = CariocaGame.createGame(players, rules, 999L, initialRound = 3)
+        val st = res.state
+        assertEquals(2, st.roundIndex)
+        players.forEach { p -> assertEquals(12, st.hands[p]!!.size) }
+        // La mano del primer jugador difiere de la ronda 1 (el seed del reparto cambia por ronda)
+        val firstRound = CariocaGame.createGame(players, rules, 999L, initialRound = 1)
+        assertTrue(st.hands[players.first()]!! != firstRound.state.hands[players.first()]!!)
+    }
+
+    @Test
+    fun `createGame rechaza una ronda inicial fuera de rango`() {
+        val ex = assertThrows(IllegalArgumentException::class.java) {
+            CariocaGame.createGame(players, rules, 12345L, initialRound = 10)
+        }
+        assertTrue(ex.message!!.contains("ronda inicial"))
+    }
+
+    @Test
+    fun `createGame con ronda inicial no altera el ruleset completo`() {
+        val res = CariocaGame.createGame(players, rules, 12345L, initialRound = 7)
+        // El ruleset conserva las 9 rondas: el juego puede seguir el flujo normal
+        assertEquals(9, res.state.ruleset.rounds.size)
+        assertEquals(7, res.state.ruleset.rounds[res.state.roundIndex].number)
+    }
 }
