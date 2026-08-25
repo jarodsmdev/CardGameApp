@@ -80,7 +80,7 @@ object CariocaBot {
             val future = rest.count { MeldValidator.validateLayOff(newMeld, it, state.ruleset) != null }
             val natural = if (card is PlayingCard) 1 else 0
             // Cualquier lay-off válido es mejor que ninguno: si aún no hay candidato
-            // se acepta el primero (bug TODO.md — sin esto, un JOKER que deja future=0
+            // se acepta el primero (sin esto, un JOKER que deja future=0
             // y natural=0 nunca se seleccionaba y la jugada ganadora no se ofrecía).
             if (best == null || future > bestFuture || (future == bestFuture && natural > bestNatural)) {
                 bestFuture = future
@@ -144,21 +144,31 @@ object CariocaBot {
 
     private fun generateCandidates(hand: List<Card>): List<Meld> {
         val out = mutableListOf<Meld>()
-        val jokers = hand.filterIsInstance<JokerCard>().toMutableList()
+        val jokers = hand.filterIsInstance<JokerCard>()
         val byRank = hand.filterIsInstance<PlayingCard>().groupBy { it.rank }
 
-        // Tríos
-        for ((rank, cards) in byRank) {
+        // Tríos naturales (3+ cartas del mismo rango, sin joker)
+        for ((_, cards) in byRank) {
             if (cards.size >= 3) out += Meld.Triple(cards.take(3))
-            else if (cards.size == 2 && jokers.isNotEmpty()) {
-                out += Meld.Triple(cards + jokers.removeAt(0))
+        }
+
+        // Tríos con joker (2 cartas naturales + 1 joker).
+        // Se genera un candidato por cada joker disponible para que
+        // searchMelds pueda probar distribuciones diferentes.
+        for ((_, cards) in byRank) {
+            if (cards.size == 2) {
+                for (joker in jokers) {
+                    out += Meld.Triple(cards + joker)
+                }
             }
         }
 
-        // Escalas por pinta (ventana deslizante sobre el ciclo con jokers)
+        // Escalas por pinta (ventana deslizante sobre el ciclo con jokers).
+        // Se prueban todas las combinaciones de jokers para cubrir los
+        // huecos, de modo que searchMelds pueda asignar jokers a escalas
+        // aunque también se necesiten en tríos.
         val bySuit = hand.filterIsInstance<PlayingCard>().groupBy { it.suit }
-        for ((suit, cards) in bySuit) {
-            // Rangos distintos por pinta (hay 2 juegos en la baraja)
+        for ((_, cards) in bySuit) {
             val distinctIdx = cards.map { it.rank.cycleIndex }.distinct()
             for (len in 4..Rank.CYCLE_SIZE) {
                 for (start in 0 until Rank.CYCLE_SIZE) {
@@ -166,13 +176,39 @@ object CariocaBot {
                     val present = distinctIdx.count { it in window }
                     val missing = len - present
                     if (missing < 0 || missing > jokers.size) continue
-                    val runCards = cards.filter { it.rank.cycleIndex in window }.distinctBy { it.rank.cycleIndex }
-                    val run = runCards + jokers.take(missing)
-                    out += Meld.Run(run)
+                    val runCards = cards.filter { it.rank.cycleIndex in window }
+                        .distinctBy { it.rank.cycleIndex }
+                    for (jokerCombo in jokerCombinations(jokers, missing)) {
+                        out += Meld.Run(runCards + jokerCombo)
+                    }
                 }
             }
         }
         return out
+    }
+
+    /** Genera todas las combinaciones de `count` jokers de la lista. */
+    private fun jokerCombinations(
+        jokers: List<JokerCard>,
+        count: Int
+    ): List<List<JokerCard>> {
+        if (count == 0) return listOf(emptyList())
+        if (count > jokers.size) return emptyList()
+        if (count == jokers.size) return listOf(jokers)
+        val result = mutableListOf<List<JokerCard>>()
+        fun combine(start: Int, current: MutableList<JokerCard>) {
+            if (current.size == count) {
+                result.add(current.toList())
+                return
+            }
+            for (i in start until jokers.size) {
+                current.add(jokers[i])
+                combine(i + 1, current)
+                current.removeAt(current.size - 1)
+            }
+        }
+        combine(0, mutableListOf())
+        return result
     }
 
     private fun searchMelds(
