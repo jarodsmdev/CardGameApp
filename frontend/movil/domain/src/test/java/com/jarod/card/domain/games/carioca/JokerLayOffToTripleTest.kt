@@ -13,7 +13,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Bug TODO.md: el Joker no puede utilizarse como Lay-off cuando queda en la
+ * Bug el Joker no puede utilizarse como Lay-off cuando queda en la
  * mano junto a una carta descartable, pese a existir una combinación legal
  * donde agregarlo.
  *

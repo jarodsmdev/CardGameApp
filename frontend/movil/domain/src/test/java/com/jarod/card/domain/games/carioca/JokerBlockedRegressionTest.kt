@@ -14,7 +14,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Regresión (TODO.md): jugador bloqueado en ronda 3/9 (2 escalas) con mano
+ * Regresión: jugador bloqueado en ronda 3/9 (2 escalas) con mano
  * {JOKER, 6♠, J♠}. El botón "añadir a mesa" se habilitaba pero el motor
  * rechazaba la jugada ("añadir la carta rompe la combinación o choca con un
  * comodín"), porque la heurística de la UI usaba una validación distinta de
@@ -35,7 +35,7 @@ class JokerBlockedRegressionTest {
         ranks.map { card(Suit.SPADE, it) }
 
     /**
-     * Estado exacto del bug (TODO.md):
+     * Estado exacto del bug:
      *  - Ronda 3/9 (2 escalas).
      *  - p1 es el único que se bajó: escala1 = 8♠ 9♠ 10♠ J♠,
      *    escala2 = Q♠ K♠ A♠ 2♠ 3♠ 4♠ (Q-K-A-2 ya melded + lay-off 3♠ 4♠).

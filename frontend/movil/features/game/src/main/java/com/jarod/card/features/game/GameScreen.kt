@@ -140,6 +140,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private val DiscardBadgeRed = Color(0xFFC62828)
+private val TableGreen = Color(0xFF1A472A)
 private val PlayedCheckGreen = Color(0xFF2E7D32)
 private val TimeoutBorderRed = Color(0xFFD32F2F)
 private val MedalGold = Color(0xFFC9A227)
@@ -641,6 +642,11 @@ private fun CariocaBoard(
     // se bloquea la interacción aquí (lay-off deja el turno en el humano) y el
     // ViewModel retrasa el avance de bots/turno ese mismo tiempo (ARRIVAL_PULSE_PAUSE_MS).
     var interactionLocked by remember { mutableStateOf(false) }
+
+    // ID de la carta que está volando hacia la mano (robo desde mazo/pozo).
+    // Mientras está activo, la carta se oculta en HandRow para evitar duplicación
+    // visual con la carta voladora que anima desde el origen hasta la mano.
+    var drawingCardId by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     fun releaseInteractionLock() {
         interactionLocked = false
@@ -715,9 +721,15 @@ private fun CariocaBoard(
                 val newCard = hand.first { it.id == newId }
                 interactionLocked = true
                 flying.launch(newCard, drawStart.second, fadeOut = false)
+                drawingCardId = newId
+                // El target se rellena con la posición que HandRow ya reportó
+                // via onGloballyPositioned → flying.reportPosition.
+                val handPos = flying.positions[newId]
+                if (handPos != null) flying.setTarget(newId, handPos)
                 pendingDraw = null
                 scope.launch {
                     delay(ARRIVAL_PULSE_PAUSE_MS)
+                    drawingCardId = null
                     releaseInteractionLock()
                 }
             }
@@ -738,7 +750,7 @@ private fun CariocaBoard(
         onDrawDiscard()
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().background(TableGreen)) {
         Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
             TopInfo(st, round, myTurn, botsThinking, error, roomId, secondsLeft)
 
@@ -764,7 +776,8 @@ private fun CariocaBoard(
                 st, myTurn, skin, dominantHand, wrappedDrawStock, wrappedDrawDiscard,
                 onPileReport = flying::setTarget,
                 onStockReport = { stockPosition = it },
-                onDiscardReport = { discardPosition = it }
+                onDiscardReport = { discardPosition = it },
+                isDrawing = pendingDraw != null
             )
 
             HandRow(
@@ -775,7 +788,8 @@ private fun CariocaBoard(
                 selectedCardId = selectedCardId,
                 onSelectionChange = { selectedCardId = it },
                 onDragActiveChange = { dragActive = it },
-                interactionEnabled = !interactionLocked
+                interactionEnabled = !interactionLocked,
+                drawingCardId = drawingCardId
             )
 
             if (human.isEmpty()) {
@@ -1132,7 +1146,8 @@ private fun StockDiscardRow(
     onDrawDiscard: () -> Unit,
     onPileReport: (String, Offset) -> Unit,
     onStockReport: (Offset) -> Unit = {},
-    onDiscardReport: (Offset) -> Unit = {}
+    onDiscardReport: (Offset) -> Unit = {},
+    isDrawing: Boolean = false
 ) {
     val pulse by rememberPulse()
     val canDrawStock = myTurn && st.stage == Stage.DRAW && st.stock.isNotEmpty()
@@ -1146,11 +1161,11 @@ private fun StockDiscardRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (dominantHand == DominantHand.LEFT) {
-            StockPile(st, canDrawStock, skin, pulse, onDrawStock, onStockReport)
-            DiscardPile(st, canDrawDiscard, skin, pulse, onDrawDiscard, onPileReport, onDiscardReport)
+            StockPile(st, canDrawStock, skin, pulse, onDrawStock, onStockReport, isDrawing)
+            DiscardPile(st, canDrawDiscard, skin, pulse, onDrawDiscard, onPileReport, onDiscardReport, isDrawing)
         } else {
-            DiscardPile(st, canDrawDiscard, skin, pulse, onDrawDiscard, onPileReport, onDiscardReport)
-            StockPile(st, canDrawStock, skin, pulse, onDrawStock, onStockReport)
+            DiscardPile(st, canDrawDiscard, skin, pulse, onDrawDiscard, onPileReport, onDiscardReport, isDrawing)
+            StockPile(st, canDrawStock, skin, pulse, onDrawStock, onStockReport, isDrawing)
         }
     }
 }
@@ -1162,7 +1177,8 @@ private fun StockPile(
     skin: CardSkin,
     pulse: Float,
     onDrawStock: () -> Unit,
-    onStockReport: (Offset) -> Unit = {}
+    onStockReport: (Offset) -> Unit = {},
+    isDrawing: Boolean = false
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         // El reverso mostrado es el del mazo al que pertenece la carta de
@@ -1180,11 +1196,12 @@ private fun StockPile(
                         val s = if (canDrawStock) 1f + 0.04f * pulse else 1f
                         scaleX = s
                         scaleY = s
+                        alpha = if (isDrawing) 0f else 1f
                     },
                 skin = skin,
                 deckIndex = top?.setIndex ?: 0
             )
-            if (st.stock.isNotEmpty()) {
+            if (st.stock.isNotEmpty() && !isDrawing) {
                 CountBadge(st.stock.size)
             }
         }
@@ -1199,7 +1216,8 @@ private fun DiscardPile(
     pulse: Float,
     onDrawDiscard: () -> Unit,
     onPileReport: (String, Offset) -> Unit,
-    onDiscardReport: (Offset) -> Unit = {}
+    onDiscardReport: (Offset) -> Unit = {},
+    isDrawing: Boolean = false
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         val top = st.discard.lastOrNull()
@@ -1223,6 +1241,7 @@ private fun DiscardPile(
                                 val s = if (canDrawDiscard) 1f + 0.04f * pulse else 1f
                                 scaleX = s
                                 scaleY = s
+                                alpha = if (isDrawing) 0f else 1f
                                 // Android 10: el pulso de escala no debe re-dibujar los
                                 // glifos escalados (HWUI puede perder el color del número).
                                 compositingStrategy = CompositingStrategy.Offscreen
@@ -1232,7 +1251,7 @@ private fun DiscardPile(
             } else {
                 CardBack(width = 44.dp, height = 62.dp, skin = skin)
             }
-            if (st.discard.isNotEmpty()) {
+            if (st.discard.isNotEmpty() && !isDrawing) {
                 CountBadge(st.discard.size)
             }
         }
@@ -1259,7 +1278,10 @@ private fun ActionBar(
         8.dp,
         if (dominantHand == DominantHand.LEFT) Alignment.Start else Alignment.End
     )
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalAlignment = if (dominantHand == DominantHand.LEFT) Alignment.Start else Alignment.End
+    ) {
         if (myTurn && st.stage == Stage.ACTIONS) {
             val human = st.hands[humanId] ?: emptyList()
             val round = st.ruleset.rounds[st.roundIndex]
@@ -1274,16 +1296,10 @@ private fun ActionBar(
                 else ->
                     "Descarta una carta para terminar tu turno."
             }
-            Text(
-                text = hint,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.End
-            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = buttonsArrangement
+                horizontalArrangement = buttonsArrangement,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 if (canMeld) {
                     Button(onClick = onMeld, enabled = interactionEnabled) {
@@ -1296,21 +1312,22 @@ private fun ActionBar(
                     }
                 }
             }
+            Text(
+                text = hint,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         } else if (myTurn && st.stage == Stage.DRAW) {
             Text(
                 text = "Roba una carta: toca el mazo o el pozo",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.End
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         } else if (!myTurn) {
             Text(
                 text = "Esperando a los demás…",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.End
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -1330,7 +1347,9 @@ private fun HandRow(
     onSelectionChange: (String?) -> Unit,
     onDragActiveChange: (Boolean) -> Unit,
     /** False mientras el juego está pausado por la animación de llegada de una carta. */
-    interactionEnabled: Boolean = true
+    interactionEnabled: Boolean = true,
+    /** ID de la carta que está volando hacia la mano; oculta para evitar duplicación. */
+    drawingCardId: String? = null
 ) {
     val hand = st.hands[humanId] ?: emptyList()
     if (hand.isEmpty()) return
@@ -1621,7 +1640,13 @@ private fun HandRow(
                         .onGloballyPositioned {
                             // La posición visual incluye las traducciones de graphicsLayer
                             // (drag o animación), no solo la posición de layout.
-                            val tx = if (isDragged) dragX - dragAnchor else x.value
+                            // Para cartas nuevas (!initDone), x aún no se ha hecho snap
+                            // a slotTarget (el snap corre en LaunchedEffect después de
+                            // layout), así que usamos slotTarget directamente para que
+                            // la carta voladora apunte a la posición correcta.
+                            val tx = if (isDragged) dragX - dragAnchor
+                                else if (!initDone) slotTarget
+                                else x.value
                             val ty = when {
                                 isDragged -> dragY - dragAnchorY
                                 isConfirmed -> confirmedFromY
@@ -1650,6 +1675,9 @@ private fun HandRow(
                             scaleY = 1f + 0.07f * lift
                             shadowElevation = shadowPx * lift
                             shape = RoundedCornerShape(6.dp)
+                            // Ocultar la carta mientras vuela desde el mazo/pozo
+                            // para evitar duplicación visual con la carta voladora.
+                            alpha = if (cardId == drawingCardId) 0f else 1f
                             // Android 10: escalar un nodo que contiene texto puede perder
                             // el color del número (se ve blanco sobre la carta blanca).
                             // Offscreen rasteriza el contenido a identidad y la escala se

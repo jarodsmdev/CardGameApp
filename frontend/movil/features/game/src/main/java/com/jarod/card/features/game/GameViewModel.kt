@@ -156,7 +156,7 @@ class GameViewModel @Inject constructor(
     /**
      * Propone el lay-off que el humano debería jugar, SIN aplicarlo. La UI lo
      * usa para conocer la carta y capturar su posición de origen antes de que
-     * el estado se actualice (animación al target real, TODO.md).
+     * el estado se actualice (animación al target real.
      */
     fun proposeLayOff(): LayOffAction? {
         val st = currentState() ?: return null
@@ -176,7 +176,7 @@ class GameViewModel @Inject constructor(
      * Valida si la carta del humano puede descartarse en este momento, sin
      * aplicarlo. La UI lo consulta ANTES de lanzar la animación de descarte:
      * si no es válido (p. ej. un JOKER), la carta no debe animarse ni
-     * desaparecer (bug TODO.md).
+     * desaparecer.
      */
     fun canDiscard(cardId: String): Boolean {
         val st = currentState() ?: return false
