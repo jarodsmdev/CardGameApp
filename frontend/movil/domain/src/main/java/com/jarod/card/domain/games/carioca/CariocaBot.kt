@@ -118,6 +118,129 @@ object CariocaBot {
         return best
     }
 
+    /**
+     * Devuelve TODAS las jugadas de lay-off válidas para quien ya se bajó en la
+     * ronda actual (rules.md §8), sin quedarse con una sola "mejor". La UI la usa
+     * para ofrecer opciones al jugador cuando hay más de una forma de jugar.
+     *
+     * Se explora cada carta de la mano contra cada meld propio y ajeno (ambos
+     * extremos para comodines) y se conservan todas las combinaciones válidas.
+     * Ordena el resultado para que las jugadas con cartas naturales precedan a
+     * las que usan comodines, y dentro de un mismo tipo conserva el orden de
+     * la mesa.
+     */
+    fun findAllLayOffs(state: CariocaState, playerId: PlayerId): List<LayOffAction> {
+        val hand = state.hands[playerId] ?: return emptyList()
+        if (hand.isEmpty()) return emptyList()
+        // Solo quien se bajó en la ronda actual y no en el mismo turno puede dar cartas
+        if (playerId !in state.meldedThisRound || playerId in state.meldedThisTurn) return emptyList()
+
+        val result = mutableListOf<LayOffAction>()
+
+        val orderedHand = hand.sortedBy { it is JokerCard }
+
+        fun consider(card: Card, meld: Meld, owner: PlayerId, i: Int, position: RunSide?) {
+            val rest = hand.filter { it.id != card.id }
+            // No gastar la última carta descartable: si tras el lay-off queda una
+            // mano no vacía sin cartas naturales, el turno no podría terminar.
+            if (rest.isNotEmpty() && rest.none { it !is JokerCard }) return
+            if (MeldValidator.validateLayOff(meld, card, state.ruleset, position) != null) {
+                result += LayOffAction(playerId, card.id, owner, i, position)
+            }
+        }
+
+        // Propios
+        for ((i, meld) in (state.table[playerId] ?: emptyList()).withIndex()) {
+            for (card in orderedHand) {
+                if (card is JokerCard) {
+                    // En un trío la posición no aporta nada (FRONT/BACK son equivalentes);
+                    // solo la consideramos en escalas.
+                    if (meld is Meld.Run) {
+                        consider(card, meld, playerId, i, RunSide.FRONT)
+                        consider(card, meld, playerId, i, RunSide.BACK)
+                    } else {
+                        consider(card, meld, playerId, i, null)
+                    }
+                } else {
+                    consider(card, meld, playerId, i, null)
+                }
+            }
+        }
+        // Ajenos
+        for ((owner, melds) in state.table) {
+            if (owner == playerId) continue
+            for ((i, meld) in melds.withIndex()) {
+                for (card in orderedHand) {
+                    if (card is JokerCard) {
+                        if (meld is Meld.Run) {
+                            consider(card, meld, owner, i, RunSide.FRONT)
+                            consider(card, meld, owner, i, RunSide.BACK)
+                        } else {
+                            consider(card, meld, owner, i, null)
+                        }
+                    } else {
+                        consider(card, meld, owner, i, null)
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    /**
+     * Devuelve TODAS las AGrupaciones (melds) válidas que permiten bajarse en la
+     * ronda actual (backtracking extendido), para ofrecer opciones al jugador
+     * cuando hay más de una forma de satisfacer los combos exigidos.
+     *
+     * [findMeldForRound] devuelve solo la primera solución encontrada; esta
+     * variante recorre el espacio de búsqueda completo y recolecta todas las
+     * soluciones que usan un subconjunto de las cartas de la mano.
+     */
+    fun findAllMeldForRound(hand: List<Card>, round: CariocaRound): List<List<Meld>> {
+        val candidates = generateCandidates(hand)
+        val solutions = mutableListOf<List<Meld>>()
+        val used = mutableSetOf<String>()
+        collectMelds(candidates, round.combos, used, 0, mutableListOf(), solutions)
+        return solutions.distinctBy { it.map { m -> m.cardIds().sorted() } }
+    }
+
+    private fun collectMelds(
+        candidates: List<Meld>,
+        specs: List<ComboSpec>,
+        usedCards: MutableSet<String>,
+        start: Int,
+        current: MutableList<Meld>,
+        out: MutableList<List<Meld>>
+    ) {
+        val tripleCount = specs.sumOf { if (it.type == ComboType.TRIPLE) it.count else 0 }
+        val runCount = specs.sumOf { if (it.type == ComboType.RUN) it.count else 0 }
+        if (tripleCount == 0 && runCount == 0) {
+            out.add(current.toList())
+            return
+        }
+
+        for (i in start until candidates.size) {
+            val m = candidates[i]
+            if (m.cardIds().any { it in usedCards }) continue
+            val isTriple = m is Meld.Triple
+            val isRun = m is Meld.Run
+            if (isTriple && tripleCount == 0) continue
+            if (isRun && runCount == 0) continue
+            val newSpecs = specs.map { s ->
+                if (s.type == ComboType.TRIPLE && isTriple) s.copy(count = s.count - 1)
+                else if (s.type == ComboType.RUN && isRun) {
+                    val minLen = if (s.exactLength != null) s.exactLength!! else s.minLength
+                    if (m.cards.size >= minLen) s.copy(count = s.count - 1) else s
+                } else s
+            }
+            usedCards.addAll(m.cardIds())
+            current.add(m)
+            collectMelds(candidates, newSpecs, usedCards, i + 1, current, out)
+            current.removeAt(current.size - 1)
+            usedCards.removeAll(m.cardIds())
+        }
+    }
+
     private fun helpsCombo(state: CariocaState, playerId: PlayerId, card: Card): Boolean {
         val hand = state.hands[playerId]!!
         val round = state.ruleset.rounds[state.roundIndex]

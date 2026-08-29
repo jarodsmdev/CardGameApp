@@ -17,6 +17,7 @@ import com.jarod.card.domain.games.carioca.DiscardAction
 import com.jarod.card.domain.games.carioca.DrawFromDiscard
 import com.jarod.card.domain.games.carioca.DrawFromStock
 import com.jarod.card.domain.games.carioca.LayOffAction
+import com.jarod.card.domain.games.carioca.Meld
 import com.jarod.card.domain.games.carioca.MeldAction
 import com.jarod.card.domain.games.carioca.RoundEnd
 import com.jarod.card.domain.games.carioca.Stage
@@ -153,10 +154,46 @@ class GameViewModel @Inject constructor(
         CariocaBot.findMeldForRound(hand, round)?.let { MeldAction(human, it) }
     }
 
+    /** Aplica una agrupación (meld) concreta elegida por el usuario (validada por el motor). */
+    fun performMeld(groups: List<Meld>) = humanAction { human ->
+        if (groups.isEmpty()) return@humanAction null
+        MeldAction(human, groups)
+    }
+
     /**
-     * Propone el lay-off que el humano debería jugar, SIN aplicarlo. La UI lo
+     * Devuelve TODAS las jugadas de bajarse (melds) disponibles para el humano
+     * en este turno. Se usa para decidir si hay varias formas de jugar: con una
+     * sola se ejecuta directo; con varias, la UI ofrece opciones.
+     */
+    fun proposeMeldOptions(): List<List<Meld>> {
+        val st = currentState() ?: return emptyList()
+        val human = _uiState.value.humanId ?: return emptyList()
+        if (st.phase != CariocaPhase.PLAYING || st.stage != Stage.ACTIONS || st.currentPlayer != human) {
+            return emptyList()
+        }
+        if (human in st.meldedThisRound) return emptyList()
+        val hand = st.hands[human] ?: return emptyList()
+        val round = st.ruleset.rounds[st.roundIndex]
+        return CariocaBot.findAllMeldForRound(hand, round)
+    }
+
+    /**
+     * Devuelve TODAS las jugadas de lay-off disponibles para el humano en este
+     * turno. Se usa para decidir si hay varias formas de jugar: con una sola se
+     * ejecuta directo; con varias, la UI ofrece opciones.
+     */
+    fun proposeLayOffOptions(): List<LayOffAction> {
+        val st = currentState() ?: return emptyList()
+        val human = _uiState.value.humanId ?: return emptyList()
+        if (st.phase != CariocaPhase.PLAYING || st.stage != Stage.ACTIONS || st.currentPlayer != human) {
+            return emptyList()
+        }
+        return CariocaBot.findAllLayOffs(st, human)
+    }
+
+    /** Propone el lay-off que el humano debería jugar, SIN aplicarlo. La UI lo
      * usa para conocer la carta y capturar su posición de origen antes de que
-     * el estado se actualice (animación al target real.
+     * el estado se actualice (animación al target real).
      */
     fun proposeLayOff(): LayOffAction? {
         val st = currentState() ?: return null
