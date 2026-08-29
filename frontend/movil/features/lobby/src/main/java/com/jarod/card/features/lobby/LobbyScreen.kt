@@ -51,7 +51,7 @@ fun LobbyScreen(
                 Text("Abrir partida demo")
             }
             OutlinedButton(onClick = onOpenSettings) {
-                Text("Ajustes de cartas")
+                Text("Ajustes")
             }
         }
     }

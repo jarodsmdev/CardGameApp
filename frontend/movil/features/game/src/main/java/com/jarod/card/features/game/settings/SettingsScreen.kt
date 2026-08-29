@@ -22,6 +22,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -61,6 +62,7 @@ fun SettingsScreen(
     val skin by viewModel.skin.collectAsStateWithLifecycle()
     val dominantHand by viewModel.dominantHand.collectAsStateWithLifecycle()
     val themePreference by viewModel.themePreference.collectAsStateWithLifecycle()
+    val musicAtStart by viewModel.musicAtStart.collectAsStateWithLifecycle()
 
     var showExitDialog by remember { mutableStateOf(false) }
     BackHandler(enabled = !showExitDialog) { showExitDialog = true }
@@ -172,6 +174,41 @@ fun SettingsScreen(
             preview = {},
             onSelect = viewModel::selectThemePreference
         )
+
+        Text(
+            text = "Sonido",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(Modifier.height(8.dp))
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = "Música al iniciar la partida",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = "Dentro de la partida siempre podrás activarla con el icono.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = musicAtStart,
+                    onCheckedChange = viewModel::setMusicAtStart
+                )
+            }
+        }
     }
     }
 }

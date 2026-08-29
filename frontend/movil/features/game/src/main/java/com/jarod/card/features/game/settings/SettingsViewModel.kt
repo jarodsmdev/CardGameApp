@@ -17,7 +17,8 @@ import kotlinx.coroutines.flow.asStateFlow
 class SettingsViewModel @Inject constructor(
     private val skinStore: CardSkinStore,
     private val handStore: DominantHandStore,
-    private val themeStore: ThemePreferenceStore
+    private val themeStore: ThemePreferenceStore,
+    private val musicStore: MusicPreferenceStore
 ) : ViewModel() {
 
     private val _skin = MutableStateFlow(skinStore.read())
@@ -27,6 +28,11 @@ class SettingsViewModel @Inject constructor(
     val dominantHand: StateFlow<DominantHand> = _dominantHand.asStateFlow()
 
     val themePreference: StateFlow<ThemePreference> = themeStore.preference
+
+    /** true = la música debe sonar al iniciar la partida; false = silenciada al inicio.
+     *  Dentro de la partida el jugador siempre puede activarla con el icono de mute. */
+    private val _musicAtStart = MutableStateFlow(!musicStore.isMuted())
+    val musicAtStart: StateFlow<Boolean> = _musicAtStart.asStateFlow()
 
     fun selectDeck0Back(design: BackDesign) = updateSkin { it.copy(deck0 = design) }
 
@@ -43,6 +49,11 @@ class SettingsViewModel @Inject constructor(
 
     fun selectThemePreference(preference: ThemePreference) {
         themeStore.save(preference)
+    }
+
+    fun setMusicAtStart(enabled: Boolean) {
+        _musicAtStart.value = enabled
+        musicStore.saveMuted(!enabled)
     }
 
     private fun updateSkin(transform: (CardSkin) -> CardSkin) {

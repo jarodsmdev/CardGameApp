@@ -39,11 +39,19 @@ class SettingsViewModelTest {
         }
     }
 
+    private class FakeMusicStore(var muted: Boolean = false) : MusicPreferenceStore {
+        override fun isMuted(): Boolean = muted
+        override fun saveMuted(muted: Boolean) {
+            this.muted = muted
+        }
+    }
+
     private fun newVm(
         skinStore: FakeSkinStore = FakeSkinStore(),
         handStore: FakeHandStore = FakeHandStore(),
-        themeStore: FakeThemeStore = FakeThemeStore()
-    ) = SettingsViewModel(skinStore, handStore, themeStore)
+        themeStore: FakeThemeStore = FakeThemeStore(),
+        musicStore: FakeMusicStore = FakeMusicStore()
+    ) = SettingsViewModel(skinStore, handStore, themeStore, musicStore)
 
     @Test
     fun `el skin por defecto es mazo 1 rojo, mazo 2 negro, clásico y a color`() {
@@ -143,5 +151,35 @@ class SettingsViewModelTest {
     fun `cargar la apariencia guardada del almacén`() {
         val vm = newVm(themeStore = FakeThemeStore(ThemePreference.LIGHT))
         assertEquals(ThemePreference.LIGHT, vm.themePreference.value)
+    }
+
+    @Test
+    fun `la música al iniciar es on cuando el almacén no está silenciado`() {
+        val vm = newVm(musicStore = FakeMusicStore(muted = false))
+        assertEquals(true, vm.musicAtStart.value)
+    }
+
+    @Test
+    fun `la música al iniciar es off cuando el almacén está silenciado`() {
+        val vm = newVm(musicStore = FakeMusicStore(muted = true))
+        assertEquals(false, vm.musicAtStart.value)
+    }
+
+    @Test
+    fun `activar la música al iniciar persiste el estado no silenciado`() {
+        val store = FakeMusicStore(muted = true)
+        val vm = newVm(musicStore = store)
+        vm.setMusicAtStart(true)
+        assertEquals(true, vm.musicAtStart.value)
+        assertEquals(false, store.muted)
+    }
+
+    @Test
+    fun `desactivar la música al iniciar persiste el estado silenciado`() {
+        val store = FakeMusicStore(muted = false)
+        val vm = newVm(musicStore = store)
+        vm.setMusicAtStart(false)
+        assertEquals(false, vm.musicAtStart.value)
+        assertEquals(true, store.muted)
     }
 }
