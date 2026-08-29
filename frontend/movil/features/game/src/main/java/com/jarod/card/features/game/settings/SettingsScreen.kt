@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -64,9 +65,11 @@ fun SettingsScreen(
     var showExitDialog by remember { mutableStateOf(false) }
     BackHandler(enabled = !showExitDialog) { showExitDialog = true }
 
+    Scaffold(modifier = modifier) { innerPadding ->
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
+            .padding(innerPadding)
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
@@ -169,6 +172,7 @@ fun SettingsScreen(
             preview = {},
             onSelect = viewModel::selectThemePreference
         )
+    }
     }
 }
 

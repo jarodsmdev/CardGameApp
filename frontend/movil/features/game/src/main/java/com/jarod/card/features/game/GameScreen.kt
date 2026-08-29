@@ -141,6 +141,7 @@ import kotlin.math.roundToInt
 
 private val DiscardBadgeRed = Color(0xFFC62828)
 private val TableGreen = Color(0xFF1A472A)
+private val TableGreenText = Color(0xFFF4F6F0)
 private val PlayedCheckGreen = Color(0xFF2E7D32)
 private val TimeoutBorderRed = Color(0xFFD32F2F)
 private val MedalGold = Color(0xFFC9A227)
@@ -285,7 +286,7 @@ private fun ScoreChip(score: Int, rank: Int, modifier: Modifier = Modifier) {
     ) {
         RankMedal(rank)
         Spacer(Modifier.width(4.dp))
-        Text("$score pts", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+        Text("$score pts", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -739,6 +740,7 @@ private fun CariocaBoard(
     }
 
     val wrappedDrawStock: () -> Unit = {
+        interactionLocked = true
         pendingDraw = Pair("stock", stockPosition)
         onDrawStock()
     }
@@ -747,6 +749,7 @@ private fun CariocaBoard(
         if (topId != null) {
             pendingDraw = Pair("discard", discardPosition)
         }
+        interactionLocked = true
         onDrawDiscard()
     }
 
@@ -796,6 +799,7 @@ private fun CariocaBoard(
                 Text(
                     text = "Sin cartas — esperando nueva ronda…",
                     style = MaterialTheme.typography.bodySmall,
+                    color = TableGreenText,
                     modifier = Modifier.padding(vertical = 4.dp)
                 )
             }
@@ -855,6 +859,7 @@ private fun TopInfo(
             text = "Ronda ${st.roundIndex + 1}/${st.ruleset.rounds.size} · ${describeRound(round)}",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
+            color = TableGreenText,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -865,19 +870,19 @@ private fun TopInfo(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = "Sala $roomId", style = MaterialTheme.typography.bodySmall)
+                Text(text = "Sala $roomId", style = MaterialTheme.typography.bodySmall, color = TableGreenText)
                 Spacer(Modifier.width(8.dp))
                 Icon(
                     Icons.Filled.AccessTime,
                     contentDescription = null,
                     modifier = Modifier.size(12.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = TableGreenText
                 )
                 Spacer(Modifier.width(2.dp))
                 Text(
                     text = roundElapsedText,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = TableGreenText
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -885,27 +890,32 @@ private fun TopInfo(
                     Icons.Filled.Loop,
                     contentDescription = null,
                     modifier = Modifier.size(14.dp),
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = TableGreenText
                 )
                 Spacer(Modifier.width(4.dp))
                 Text(
                     text = "${st.laps + 1}",
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
+                    color = TableGreenText
                 )
                 Spacer(Modifier.width(12.dp))
                 when {
                     botsThinking -> Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(
+                            Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                            color = TableGreenText
+                        )
                         Spacer(Modifier.width(6.dp))
-                        Text("Jugando…", style = MaterialTheme.typography.bodySmall)
+                        Text("Jugando…", style = MaterialTheme.typography.bodySmall, color = TableGreenText)
                     }
                     myTurn -> Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = "Tu turno",
                             style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            color = TableGreenText
                         )
                         if (secondsLeft >= 0) {
                             Spacer(Modifier.width(6.dp))
@@ -916,7 +926,7 @@ private fun TopInfo(
                                 color = if (secondsLeft <= st.ruleset.turnTimeout.warningAtSeconds) {
                                     MaterialTheme.colorScheme.error
                                 } else {
-                                    MaterialTheme.colorScheme.onSurface
+                                    TableGreenText
                                 }
                             )
                         }
@@ -988,7 +998,7 @@ private fun PlayerCard(
         Box(Modifier.padding(8.dp)) {
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     if (played) {
                         Spacer(Modifier.width(4.dp))
                         Icon(
@@ -1061,12 +1071,12 @@ private fun TableSection(
     onCardPosition: (String, Offset) -> Unit
 ) {
     val meldsByPlayer = st.table.filterValues { it.isNotEmpty() }
-    Text("Mesa", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+    Text("Mesa", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = TableGreenText)
     if (meldsByPlayer.isEmpty()) {
         Text(
             text = "Nadie se ha bajado todavía.",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = TableGreenText
         )
     } else {
         meldsByPlayer.forEach { (owner, melds) ->
@@ -1090,6 +1100,7 @@ private fun TableSection(
                             .graphicsLayer { rotationZ = -90f },
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
+                        color = MedalGold,
                         maxLines = 1
                     )
                 }
@@ -1315,19 +1326,19 @@ private fun ActionBar(
             Text(
                 text = hint,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = TableGreenText
             )
         } else if (myTurn && st.stage == Stage.DRAW) {
             Text(
                 text = "Roba una carta: toca el mazo o el pozo",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = TableGreenText
             )
         } else if (!myTurn) {
             Text(
                 text = "Esperando a los demás…",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = TableGreenText
             )
         }
     }
@@ -2213,7 +2224,7 @@ private fun RoundsWonStat(roundsWon: Int, totalRounds: Int) {
         Spacer(Modifier.width(5.dp))
         Text(
             text = if (roundsWon == 0) {
-                "Sin rondas ganadas aún"
+                "Sin rondas ganadas"
             } else {
                 "Ganó $roundsWon de $totalRounds ${if (totalRounds == 1) "ronda" else "rondas"}"
             },

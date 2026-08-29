@@ -17,6 +17,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,8 +46,12 @@ fun PersonalizarJuegoScreen(
 ) {
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
 
+    Scaffold(modifier = modifier) { innerPadding ->
     Column(
-        modifier = modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(innerPadding)
+            .padding(24.dp),
         horizontalAlignment = Alignment.Start
     ) {
         Text(
@@ -118,6 +123,7 @@ fun PersonalizarJuegoScreen(
         OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
             Text("Volver")
         }
+    }
     }
 }
 
