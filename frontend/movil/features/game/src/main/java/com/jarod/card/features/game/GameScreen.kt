@@ -1,6 +1,8 @@
 package com.jarod.card.features.game
 
 import android.graphics.BlurMaskFilter
+import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
@@ -43,6 +45,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.EmojiEvents
@@ -56,11 +59,13 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -97,6 +102,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
@@ -550,6 +556,38 @@ fun GameScreen(
         }
     }
 
+    // Música de fondo de la partida: suena en bucle infinito mientras la vista de
+    // juego está visible y se libera al salir (DisposableEffect finaliza cuando la
+    // composable abandona la composición → se detiene si el usuario ya no juega).
+    val musicContext = LocalContext.current
+    var musicPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    DisposableEffect(Unit) {
+        val player = try {
+            MediaPlayer.create(musicContext, com.jarod.card.features.game.R.raw.kulakovka_casino)
+        } catch (e: Exception) {
+            null
+        }
+        if (player != null) {
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_GAME)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
+            player.setAudioAttributes(attrs)
+            player.isLooping = true
+            if (!ui.musicMuted) player.start()
+            musicPlayer = player
+        }
+        onDispose {
+            runCatching { musicPlayer?.stop() }
+            runCatching { musicPlayer?.release() }
+            musicPlayer = null
+        }
+    }
+    // Al cambiar el estado de silencio se pausa o reanuda la música al instante.
+    LaunchedEffect(ui.musicMuted) {
+        runCatching { musicPlayer?.let { p -> if (ui.musicMuted) p.pause() else p.start() } }
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         if (st == null || ui.humanId == null) {
             CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -580,6 +618,25 @@ fun GameScreen(
             st.phase == CariocaPhase.PLAYING && st.currentPlayer == human &&
             ui.secondsLeft in 0..st.ruleset.turnTimeout.warningAtSeconds
         TurnTimeoutVignette(active = lowTime)
+    }
+
+    // Botón para mutear / reactivar la música de fondo (siempre visible). Un único
+    // icono de mute: al apretarlo detiene la música (stop) o la reanuda (play).
+    Box(modifier = Modifier.fillMaxSize().padding(8.dp), contentAlignment = Alignment.TopEnd) {
+        IconButton(
+            onClick = { viewModel.setMusicMuted(!ui.musicMuted) },
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(TableGreen.copy(alpha = 0.85f))
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.VolumeOff,
+                contentDescription = if (ui.musicMuted) "Activar música" else "Silenciar música",
+                tint = if (ui.musicMuted) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                else MaterialTheme.colorScheme.onSurface
+            )
+        }
     }
 
     if (st?.phase == CariocaPhase.GAME_END && st.result != null) {

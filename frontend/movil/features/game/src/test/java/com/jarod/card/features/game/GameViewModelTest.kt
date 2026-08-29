@@ -17,6 +17,7 @@ import com.jarod.card.features.game.settings.DominantHand
 import com.jarod.card.features.game.settings.DominantHandStore
 import com.jarod.card.features.game.settings.GameSetup
 import com.jarod.card.features.game.settings.GameSetupStore
+import com.jarod.card.features.game.settings.MusicPreferenceStore
 import com.jarod.card.features.game.stats.CumulativeStats
 import com.jarod.card.features.game.stats.GameStatsStore
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -64,6 +65,13 @@ class GameViewModelTest {
         }
     }
 
+    private class FakeMusicStore(var muted: Boolean = false) : MusicPreferenceStore {
+        override fun isMuted(): Boolean = muted
+        override fun saveMuted(muted: Boolean) {
+            this.muted = muted
+        }
+    }
+
     private fun provider(): DispatchersProvider =
         DispatchersProvider(main = mainRule.testDispatcher, default = mainRule.testDispatcher, io = mainRule.testDispatcher)
 
@@ -81,7 +89,7 @@ class GameViewModelTest {
         handStore: FakeHandStore = FakeHandStore(),
         setupStore: FakeSetupStore = FakeSetupStore()
     ): GameViewModel {
-        val vm = GameViewModel(provider(), FakeSkinStore(), FakeStatsStore(), handStore, setupStore)
+        val vm = GameViewModel(provider(), FakeSkinStore(), FakeStatsStore(), handStore, setupStore, FakeMusicStore())
         vm.startGame(ruleset, seed, initialRound)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         return vm
@@ -109,7 +117,7 @@ class GameViewModelTest {
             front = FrontDesign.DORADO,
             joker = JokerStyle.ORO
         )
-        val vm = GameViewModel(provider(), FakeSkinStore(saved), FakeStatsStore(), FakeHandStore(), FakeSetupStore())
+        val vm = GameViewModel(provider(), FakeSkinStore(saved), FakeStatsStore(), FakeHandStore(), FakeSetupStore(), FakeMusicStore())
         vm.startGame(shortRules(), 999L)
         advance()
         assertEquals(saved, vm.uiState.value.skin)
@@ -127,7 +135,7 @@ class GameViewModelTest {
     @Test
     fun `al terminar la partida se generan stats y se acumulan en el almacén`() {
         val statsStore = FakeStatsStore()
-        val vm = GameViewModel(provider(), FakeSkinStore(), statsStore, FakeHandStore(), FakeSetupStore())
+        val vm = GameViewModel(provider(), FakeSkinStore(), statsStore, FakeHandStore(), FakeSetupStore(), FakeMusicStore())
         vm.startGame(shortRules(), 999L)
         advance()
         playUntilEnd(vm)
@@ -385,7 +393,7 @@ class GameViewModelTest {
     @Test
     fun `la ronda inicial llega por el setup guardado en Personalizar juego`() {
         val setup = FakeSetupStore(GameSetup(players = 4, rounds = (1..9).toList(), cutBonusEnabled = false, initialRound = 3))
-        val vm = GameViewModel(provider(), FakeSkinStore(), FakeStatsStore(), FakeHandStore(), setup)
+        val vm = GameViewModel(provider(), FakeSkinStore(), FakeStatsStore(), FakeHandStore(), setup, FakeMusicStore())
         advance()
         assertEquals(2, vm.uiState.value.state!!.roundIndex)
         assertEquals(3, vm.uiState.value.state!!.ruleset.rounds[vm.uiState.value.state!!.roundIndex].number)
@@ -401,7 +409,7 @@ class GameViewModelTest {
                 initialRound = 4
             )
         )
-        val vm = GameViewModel(provider(), FakeSkinStore(), FakeStatsStore(), FakeHandStore(), setup)
+        val vm = GameViewModel(provider(), FakeSkinStore(), FakeStatsStore(), FakeHandStore(), setup, FakeMusicStore())
         advance()
         val st = vm.uiState.value.state!!
         assertEquals("Se juegan solo las rondas seleccionadas", 3, st.ruleset.rounds.size)
@@ -418,5 +426,35 @@ class GameViewModelTest {
         val st = vm.uiState.value.state!!
         assertEquals(0, st.roundIndex)
         assertEquals(1, st.ruleset.rounds[st.roundIndex].number)
+    }
+
+    @Test
+    fun `la música arranca sonando por defecto`() {
+        val vm = newViewModel()
+        assertFalse("La música no está mutada por defecto", vm.uiState.value.musicMuted)
+    }
+
+    @Test
+    fun `setMusicMuted persiste y refleja el estado de silencio`() {
+        val musicStore = FakeMusicStore(muted = false)
+        val vm = GameViewModel(provider(), FakeSkinStore(), FakeStatsStore(), FakeHandStore(), FakeSetupStore(), musicStore)
+        advance()
+
+        assertFalse("Estado inicial: música sonando", vm.uiState.value.musicMuted)
+
+        vm.setMusicMuted(true)
+        assertTrue("Tras mutear, el estado refleja el silencio", vm.uiState.value.musicMuted)
+        assertTrue("El silencio se persiste en el almacén", musicStore.muted)
+
+        vm.setMusicMuted(false)
+        assertFalse("Se puede reactivar la música", vm.uiState.value.musicMuted)
+        assertFalse("La reactivación también se persiste", musicStore.muted)
+    }
+
+    @Test
+    fun `el estado de silencio guardado se restaura al crear la partida`() {
+        val musicStore = FakeMusicStore(muted = true)
+        val vm = GameViewModel(provider(), FakeSkinStore(), FakeStatsStore(), FakeHandStore(), FakeSetupStore(), musicStore)
+        assertTrue("Se restaura el silencio guardado", vm.uiState.value.musicMuted)
     }
 }

@@ -29,6 +29,7 @@ import com.jarod.card.features.game.settings.DominantHand
 import com.jarod.card.features.game.settings.DominantHandStore
 import com.jarod.card.features.game.settings.GameSetup
 import com.jarod.card.features.game.settings.GameSetupStore
+import com.jarod.card.features.game.settings.MusicPreferenceStore
 import com.jarod.card.features.game.stats.CumulativeStats
 import com.jarod.card.features.game.stats.GameStats
 import com.jarod.card.features.game.stats.GameStatsStore
@@ -55,6 +56,8 @@ data class GameUiState(
     val skin: CardSkin = CardSkin(),
     /** Mano dominante: posiciona el mazo/pozo al lado de la mano principal. */
     val dominantHand: DominantHand = DominantHand.RIGHT,
+    /** Música de fondo de la partida: true = silenciada, false = sonando. */
+    val musicMuted: Boolean = false,
     /** Info de fin de ronda para mostrar diálogo (ganador, puntos, nº ronda). */
     val roundEndInfo: RoundEndInfo? = null,
     /** Resumen congelado de la ronda terminada (duración y turnos), para el scoreboard. */
@@ -73,11 +76,16 @@ class GameViewModel @Inject constructor(
     private val skinStore: CardSkinStore,
     private val statsStore: GameStatsStore,
     private val handStore: DominantHandStore,
-    private val setupStore: GameSetupStore
+    private val setupStore: GameSetupStore,
+    private val musicStore: MusicPreferenceStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
-        GameUiState(skin = skinStore.read(), dominantHand = handStore.read())
+        GameUiState(
+            skin = skinStore.read(),
+            dominantHand = handStore.read(),
+            musicMuted = musicStore.isMuted()
+        )
     )
     val uiState: StateFlow<GameUiState> = _uiState.asStateFlow()
 
@@ -126,6 +134,12 @@ class GameViewModel @Inject constructor(
             syncTurnTimer()
             runBotsIfNeeded()
         }
+    }
+
+    /** Cambia el estado de silencio de la música de fondo (persistido entre partidas). */
+    fun setMusicMuted(muted: Boolean) {
+        musicStore.saveMuted(muted)
+        _uiState.value = _uiState.value.copy(musicMuted = muted)
     }
 
     /** Ruleset desde la configuración de "Personalizar juego" (FR-SAL-01/FR-CAR-05). */
