@@ -136,9 +136,10 @@ class GameViewModel @Inject constructor(
         }
     }
 
-    /** Cambia el estado de silencio de la música de fondo (persistido entre partidas). */
+    /** Cambia el estado de silencio de la música de fondo de la partida actual.
+     *  Es un cambio de sesión: NO se persiste, de modo que al iniciar una nueva
+     *  partida se respeta la configuración "Música al iniciar" de los Ajustes. */
     fun setMusicMuted(muted: Boolean) {
-        musicStore.saveMuted(muted)
         _uiState.value = _uiState.value.copy(musicMuted = muted)
     }
 

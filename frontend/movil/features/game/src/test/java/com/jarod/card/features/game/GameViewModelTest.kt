@@ -435,7 +435,7 @@ class GameViewModelTest {
     }
 
     @Test
-    fun `setMusicMuted persiste y refleja el estado de silencio`() {
+    fun `setMusicMuted refleja el estado de silencio solo en la partida actual`() {
         val musicStore = FakeMusicStore(muted = false)
         val vm = GameViewModel(provider(), FakeSkinStore(), FakeStatsStore(), FakeHandStore(), FakeSetupStore(), musicStore)
         advance()
@@ -444,11 +444,11 @@ class GameViewModelTest {
 
         vm.setMusicMuted(true)
         assertTrue("Tras mutear, el estado refleja el silencio", vm.uiState.value.musicMuted)
-        assertTrue("El silencio se persiste en el almacén", musicStore.muted)
+        assertFalse("El silencio NO persiste (es solo de sesión)", musicStore.muted)
 
         vm.setMusicMuted(false)
         assertFalse("Se puede reactivar la música", vm.uiState.value.musicMuted)
-        assertFalse("La reactivación también se persiste", musicStore.muted)
+        assertFalse("La reactivación tampoco persiste", musicStore.muted)
     }
 
     @Test

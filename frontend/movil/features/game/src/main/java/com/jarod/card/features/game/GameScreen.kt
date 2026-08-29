@@ -46,6 +46,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.EmojiEvents
@@ -86,6 +87,7 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -101,6 +103,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -117,6 +120,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarod.card.core.ui.ConfirmDialog
 import com.jarod.card.core.debug.DEBUG_TOOLS_ENABLED
@@ -164,6 +170,10 @@ private val MedalFourth = Color(0xFF6B7280)
  * FlyingCardView y PulsingArrivalBorder; lo comparte GameViewModel para retrasar
  * el avance del turno/bots hasta que el jugador vea dónde aterrizó la carta.
  */
+/** Dimensiones comunes de la cara de una carta en la vista de juego (px y dp). */
+private val CARD_WIDTH = 44.dp
+private val CARD_HEIGHT = 62.dp
+
 internal const val ARRIVAL_PULSE_PAUSE_MS = 1650L
 
 /** Duración del aviso de acción inválida en el texto informativo (p.ej. JOKER). */
@@ -178,17 +188,21 @@ private fun Card.label(): String = when (this) {
 }
 
 
-/**
- * Opción de jugada a elegir cuando el motor encuentra MÁS DE UNA forma válida
- * de jugar en el turno del humano. El selector muestra una lista y el jugador
- * decide cuál ejecutar; con una sola opción se ejecuta directo (sin selector).
- */
-private sealed interface PlayChoice {
-    /** Varias agrupaciones (melds) posibles para bajarse. */
-    data class Melds(val options: List<List<Meld>>) : PlayChoice
+/** Identifica un meld de la mesa (dueño + índice) como posible destino de una carta. */
+private data class MeldKey(val owner: PlayerId, val index: Int)
 
-    /** Varios lay-offs posibles (carta + combinación de la mesa). */
-    data class LayOffs(val options: List<LayOffAction>) : PlayChoice
+/**
+ * Modo "bajar a la mesa" visual: la carta [cardId] queda activa y la mesa destaca
+ * sus destinos válidos ([destinations]). El jugador arrastra la carta hasta uno
+ * de los melds destacados para confirmar el lay-off, o la suelta fuera para
+ * cancelar (la carta vuelve a la mano).
+ */
+private data class LayOffTarget(
+    val cardId: String,
+    val destinations: List<LayOffAction>
+) {
+    val melds: Set<MeldKey> get() =
+        destinations.map { MeldKey(it.meldOwner, it.meldIndex) }.toSet()
 }
 
 
@@ -560,10 +574,13 @@ fun GameScreen(
     // juego está visible y se libera al salir (DisposableEffect finaliza cuando la
     // composable abandona la composición → se detiene si el usuario ya no juega).
     val musicContext = LocalContext.current
+    val musicRes = com.jarod.card.features.game.R.raw.kulakovka_casino
     var musicPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    var musicReady by remember { mutableStateOf(false) }
+    var musicReleased by remember { mutableStateOf(false) }
     DisposableEffect(Unit) {
         val player = try {
-            MediaPlayer.create(musicContext, com.jarod.card.features.game.R.raw.kulakovka_casino)
+            MediaPlayer.create(musicContext, musicRes)
         } catch (e: Exception) {
             null
         }
@@ -574,18 +591,51 @@ fun GameScreen(
                 .build()
             player.setAudioAttributes(attrs)
             player.isLooping = true
-            if (!ui.musicMuted) player.start()
+            // create() ya prepara el recurso (bloqueante) y devuelve null si falla.
+            musicReleased = false
+            musicReady = true
             musicPlayer = player
         }
         onDispose {
+            musicReleased = true
+            musicReady = false
             runCatching { musicPlayer?.stop() }
             runCatching { musicPlayer?.release() }
             musicPlayer = null
         }
     }
-    // Al cambiar el estado de silencio se pausa o reanuda la música al instante.
-    LaunchedEffect(ui.musicMuted) {
-        runCatching { musicPlayer?.let { p -> if (ui.musicMuted) p.pause() else p.start() } }
+    // Centraliza el arranque/parada: reacciona al silencio y a la creación del
+    // reproductor, pero solo opera si está preparado y no liberado.
+    LaunchedEffect(ui.musicMuted, musicPlayer, musicReady) {
+        val p = musicPlayer ?: return@LaunchedEffect
+        if (!musicReady || musicReleased) return@LaunchedEffect
+        try {
+            if (ui.musicMuted) {
+                if (p.isPlaying) p.pause()
+            } else {
+                p.start()
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Music", "sync failed", e)
+        }
+    }
+
+    // Pausa la música cuando la app deja de estar visible (p.ej. al minimizarla o
+    // al cambiar de pantalla) y la reanuda al volver, solo si no está silenciada.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val currentMuted by rememberUpdatedState(ui.musicMuted)
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> runCatching { musicPlayer?.pause() }
+                Lifecycle.Event.ON_START -> if (!currentMuted) {
+                    runCatching { musicPlayer?.start() }
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -631,7 +681,7 @@ fun GameScreen(
                 .background(TableGreen.copy(alpha = 0.85f))
         ) {
             Icon(
-                imageVector = Icons.AutoMirrored.Filled.VolumeOff,
+                imageVector = if (ui.musicMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.Filled.VolumeUp,
                 contentDescription = if (ui.musicMuted) "Activar música" else "Silenciar música",
                 tint = if (ui.musicMuted) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                 else MaterialTheme.colorScheme.onSurface
@@ -702,6 +752,11 @@ private fun CariocaBoard(
     val round = st.ruleset.rounds[st.roundIndex]
     val human = st.hands[humanId] ?: emptyList()
 
+    // Tamaño en px de la mitad del ancho y del alto de una cara de carta, para
+    // trazar la carta arrastrada con el dedo apoyado en su base (arrastre global).
+    val cardHalfWPx = with(LocalDensity.current) { CARD_WIDTH.toPx() / 2f }
+    val cardHPx = with(LocalDensity.current) { CARD_HEIGHT.toPx() }
+
     var selectedCardId by remember { mutableStateOf<String?>(null) }
     val canSelect = myTurn && st.stage == Stage.ACTIONS
     LaunchedEffect(canSelect) {
@@ -771,20 +826,44 @@ private fun CariocaBoard(
         }
     }
 
-    // Estado del selector de jugadas múltiples: null cuando no hay nada que elegir.
-    var playChoice by remember { mutableStateOf<PlayChoice?>(null) }
+    // Estado del selector de bajada (melds): solo para las raras distribuciones
+    // alternativas con jokers, donde no hay un destino visual único en la mesa
+    // sobre el que soltar una carta. Null cuando no hay nada que elegir.
+    var meldChoice by remember { mutableStateOf<List<List<Meld>>?>(null) }
 
-    // Lay-off: se propone la jugada, se captura el origen de la carta y se
-    // aplica; el target se rellena cuando la combinación renderice la carta.
-    // Si hay más de una jugada posible se abre el selector para que el jugador
-    // elija qué carta / combinación usar; con una sola se ejecuta directo.
-    fun executeLayOff(action: LayOffAction) {
+    // ── Modo "bajar a la mesa" visual (lay-off) ──────────────────
+    // La carta objetivo queda activa y la mesa destaca sus destinos válidos.
+    // El jugador la arrastra hasta un meld destacado para confirmar, o la suelta
+    // fuera para cancelar (la carta vuelve a la mano, sin abrir ningún modal).
+    var layOffTarget by remember { mutableStateOf<LayOffTarget?>(null) }
+
+    // Rect global de cada meld destacado, medido en el layout final (TableSection):
+    // se usa para detectar en qué destino se suelta el dedo durante el arrastre.
+    val targetRects = remember { mutableStateMapOf<MeldKey, Rect>() }
+
+    // Carta arrastrada fuera de la mano + posición global del dedo (px), para
+    // dibujarla por encima del tablero mientras el jugador la lleva a un meld.
+    var dragCardId by remember { mutableStateOf<String?>(null) }
+    var dragPos by remember { mutableStateOf<Offset?>(null) }
+
+    fun clearLayOffTarget() {
+        layOffTarget = null
+        dragCardId = null
+        dragPos = null
+        targetRects.clear()
+    }
+
+    // Lay-off: se captura el origen de la carta y se aplica; el target se rellena
+    // cuando la combinación renderice la carta (vuelo + pulso 1.2 s de llegada).
+    // [explicitStart] permite lanzar el vuelo desde donde se soltó el dedo al
+    // arrastrar la carta hasta un meld (continuidad visual sin salto).
+    fun executeLayOff(action: LayOffAction, explicitStart: Offset? = null) {
         val card = currentCard(action.cardId)
-        val start = card?.let { flying.positions[it.id] }
+        val start = explicitStart ?: card?.let { flying.positions[it.id] }
         val launched = card != null && start != null
         if (launched) {
             interactionLocked = true
-            flying.launch(card, start)
+            flying.launchFrom(card, start)
             scope.launch {
                 delay(ARRIVAL_PULSE_PAUSE_MS)
                 releaseInteractionLock()
@@ -793,30 +872,40 @@ private fun CariocaBoard(
         onPerformLayOff(action)
     }
 
-    val layOffRequest: () -> Unit = {
-        val options = onLayOffOptions()
-        when {
-            options.isEmpty() -> Unit
-            options.size == 1 -> executeLayOff(options.single())
-            else -> playChoice = PlayChoice.LayOffs(options)
+    // Entra en modo objetivo visual: destaca los destinos de [cardId] en la mesa.
+    // La carta activa espera a que el jugador la arrastre hasta un meld y suelte.
+    // Pulsar de nuevo la misma carta activa la cancela (la carta vuelve).
+    fun startLayOffTarget(cardId: String) {
+        if (layOffTarget?.cardId == cardId) {
+            clearLayOffTarget()
+        } else {
+            val options = onLayOffOptions().filter { it.cardId == cardId }
+            if (options.isEmpty()) {
+                // Sin destinos: feedback breve, sin modal; la carta no se mueve.
+                showDiscardNotice("Esa carta no se puede añadir a la mesa")
+            } else {
+                layOffTarget = LayOffTarget(cardId, options)
+                selectedCardId = cardId
+            }
         }
     }
 
-    // Swipe ↑ sobre una carta de la mano: intenta jugarla como lay-off. Si solo
-    // hay un destino se ejecuta directo; si hay varios se abre el selector;
-    // si no hay ninguno se devuelve false para que la mano caiga al descarte.
+    // Botón "Añadir a mesa": entra en modo objetivo visual con la carta seleccionada.
+    val layOffRequest: () -> Unit = {
+        val id = selectedCardId
+        if (id != null) startLayOffTarget(id)
+        else showDiscardNotice("Selecciona una carta de tu mano primero")
+    }
+
+    // Swipe ↑ sobre una carta: intenta jugarla como lay-off. Si tiene destinos
+    // entra en modo objetivo visual; si no devuelve false para que la mano la
+    // lleve al descarte (mecánica existente intacta).
     val swipeUpCard: (String) -> Boolean = { cardId ->
         val options = onLayOffOptions().filter { it.cardId == cardId }
-        when {
-            options.isEmpty() -> false
-            options.size == 1 -> {
-                executeLayOff(options.single())
-                true
-            }
-            else -> {
-                playChoice = PlayChoice.LayOffs(options)
-                true
-            }
+        if (options.isEmpty()) false
+        else {
+            startLayOffTarget(cardId)
+            true
         }
     }
 
@@ -827,8 +916,28 @@ private fun CariocaBoard(
         when {
             options.isEmpty() -> Unit
             options.size == 1 -> onMeld()
-            else -> playChoice = PlayChoice.Melds(options)
+            else -> meldChoice = options
         }
+    }
+
+    // Soltar al arrastrar una carta objetivo: si el dedo quedó sobre un meld
+    // destacado se confirma el lay-off; si no, se cancela (la carta vuelve).
+    fun onTargetDragRelease() {
+        val target = layOffTarget ?: return
+        val drop = dragPos ?: return
+        // El punto de destino es el DEDO (base de la carta), que es donde apunta el
+        // jugador; la carta se traza con su esquina superior-izquierda sobre él.
+        val hitKey = targetRects.entries.firstOrNull { it.value.contains(drop) }?.key
+        val action = hitKey?.let { k ->
+            target.destinations.firstOrNull { MeldKey(it.meldOwner, it.meldIndex) == k }
+        }
+        if (action != null && !interactionLocked) {
+            // El vuelo parte desde la esquina de la carta tal y como se veía durante
+            // el arrastre (dedo en la base), para una transición continua sin salto.
+            val dropTopLeft = drop - Offset(cardHalfWPx, cardHPx)
+            executeLayOff(action, explicitStart = dropTopLeft)
+        }
+        clearLayOffTarget()
     }
 
     // ── Llegada de carta robada (mazo/pozo → mano) ──────────────
@@ -895,14 +1004,17 @@ private fun CariocaBoard(
             ) {
                 TableSection(
                     st, humanId, skin,
-                    onCardPosition = flying::setTarget
+                    onCardPosition = flying::setTarget,
+                    targetMelds = layOffTarget?.melds.orEmpty(),
+                    onTargetRect = { key, rect -> targetRects[key] = rect }
                 )
             }
 
             ActionBar(st, humanId, myTurn, selectedCardId, dragActive, meldRequest, layOffRequest,
                 notice = discardNotice,
                 dominantHand = dominantHand,
-                interactionEnabled = !interactionLocked)
+                interactionEnabled = !interactionLocked,
+                targetActive = layOffTarget != null)
 
             StockDiscardRow(
                 st, myTurn, skin, dominantHand, wrappedDrawStock, wrappedDrawDiscard,
@@ -922,7 +1034,14 @@ private fun CariocaBoard(
                 onSelectionChange = { selectedCardId = it },
                 onDragActiveChange = { dragActive = it },
                 interactionEnabled = !interactionLocked,
-                drawingCardId = drawingCardId
+                drawingCardId = drawingCardId,
+                targetDragCardId = layOffTarget?.cardId,
+                onTargetDragUpdate = { cardId, global ->
+                    if (dragCardId != cardId) dragCardId = cardId
+                    dragPos = global
+                },
+                onTargetDragRelease = ::onTargetDragRelease,
+                hiddenCardId = dragCardId
             )
 
             if (human.isEmpty()) {
@@ -949,31 +1068,46 @@ private fun CariocaBoard(
             )
         }
 
-        val currentChoice = playChoice
-        // Si la jugada deja de ser viable mientras el selector está abierto (por
-        // ejemplo el turno pasa al actualizar el estado), se cierra solo.
-        LaunchedEffect(currentChoice, st.currentPlayer, st.stage, st.phase) {
-            if (currentChoice != null &&
-                (st.phase != CariocaPhase.PLAYING || st.stage != Stage.ACTIONS ||
-                    st.currentPlayer != humanId)
+        val currentChoice = meldChoice
+        // Si la jugada deja de ser viable mientras el selector o el modo objetivo
+        // visual están abiertos (p.ej. el turno pasa al actualizar el estado), se cierran solos.
+        LaunchedEffect(currentChoice, layOffTarget, st.currentPlayer, st.stage, st.phase) {
+            if (st.phase != CariocaPhase.PLAYING || st.stage != Stage.ACTIONS ||
+                st.currentPlayer != humanId
             ) {
-                playChoice = null
+                meldChoice = null
+                if (layOffTarget != null) clearLayOffTarget()
             }
         }
         if (currentChoice != null) {
             PlayChoiceDialog(
-                choice = currentChoice,
+                options = currentChoice,
                 getCardLabel = { id -> currentSt.hands[currentHumanId]?.firstOrNull { it.id == id }?.label() ?: "?" },
                 onSelectMeld = { groups ->
-                    playChoice = null
+                    meldChoice = null
                     onMeldFor(groups)
                 },
-                onSelectLayOff = { action ->
-                    playChoice = null
-                    executeLayOff(action)
-                },
-                onDismiss = { playChoice = null }
+                onDismiss = { meldChoice = null }
             )
+        }
+
+        // Capa que dibuja la carta arrastrada por encima del tablero mientras el
+        // jugador la lleva a un meld destacado (modo objetivo visual de lay-off).
+        val draggedCard = dragCardId?.let { currentSt.hands[currentHumanId]?.firstOrNull { c -> c.id == it } }
+        if (draggedCard != null && dragPos != null) {
+            Box(modifier = Modifier.matchParentSize()) {
+                // El dedo queda apoyado en la base y centro de la carta.
+                Box(
+                    modifier = Modifier.offset {
+                        IntOffset(
+                            (dragPos!!.x - cardHalfWPx).roundToInt(),
+                            (dragPos!!.y - cardHPx).roundToInt()
+                        )
+                    }
+                ) {
+                    CardFace(card = draggedCard, width = CARD_WIDTH, height = CARD_HEIGHT, skin = skin)
+                }
+            }
         }
     }
 }
@@ -1011,7 +1145,7 @@ private fun TopInfo(
     secondsLeft: Int
 ) {
     val roundElapsedText = rememberRoundElapsedText(st)
-    Column(Modifier.fillMaxWidth()) {
+    Column(Modifier.fillMaxWidth().padding(top = 14.dp)) {
         Text(
             text = "Ronda ${st.roundIndex + 1}/${st.ruleset.rounds.size} · ${describeRound(round)}",
             style = MaterialTheme.typography.titleMedium,
@@ -1225,7 +1359,9 @@ private fun TableSection(
     st: CariocaState,
     humanId: PlayerId,
     skin: CardSkin,
-    onCardPosition: (String, Offset) -> Unit
+    onCardPosition: (String, Offset) -> Unit,
+    targetMelds: Set<MeldKey> = emptySet(),
+    onTargetRect: (MeldKey, Rect) -> Unit = { _, _ -> }
 ) {
     val meldsByPlayer = st.table.filterValues { it.isNotEmpty() }
     Text("Mesa", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = TableGreenText)
@@ -1237,6 +1373,7 @@ private fun TableSection(
         )
     } else {
         meldsByPlayer.forEach { (owner, melds) ->
+            val playerMelds = melds
             Row(
                 modifier = Modifier.padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -1263,8 +1400,15 @@ private fun TableSection(
                 }
                 Spacer(Modifier.width(8.dp))
                 Row(Modifier.horizontalScroll(rememberScrollState())) {
-                    melds.forEach { meld ->
-                        MeldRow(meld, skin, onCardPosition)
+                    playerMelds.forEachIndexed { index, meld ->
+                        val key = MeldKey(owner, index)
+                        MeldRow(
+                            meld = meld,
+                            skin = skin,
+                            onCardPosition = onCardPosition,
+                            isTarget = key in targetMelds,
+                            onTargetRect = { rect -> onTargetRect(key, rect) }
+                        )
                     }
                 }
             }
@@ -1276,32 +1420,75 @@ private fun TableSection(
 private fun MeldRow(
     meld: Meld,
     skin: CardSkin,
-    onCardPosition: (String, Offset) -> Unit
+    onCardPosition: (String, Offset) -> Unit,
+    isTarget: Boolean = false,
+    onTargetRect: (Rect) -> Unit = {}
 ) {
     // Las cartas del meld se apilan una encima de otra (mismo solapamiento que la
     // mano del jugador); la separación entre melds se mantiene en TableSection.
-    Row(
-        modifier = Modifier.padding(end = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy((-18).dp)
+    Box(
+        modifier = Modifier
+            .onGloballyPositioned { if (isTarget) onTargetRect(it.boundsInRoot()) }
     ) {
-        meld.cards.forEach { card ->
-            // Reporta la posición real de cada carta: el overlay la usa como target
-            // cuando la carta voladora aterriza en esta combinación.
-            // key(card.id): al llegar cartas nuevas se compone un nodo nuevo, igual
-            // que en la mano (en Android 10 el texto reutilizado no se repinta).
-            key(card.id) {
-                CardFace(
-                    card = card,
-                    width = 44.dp,
-                    height = 62.dp,
-                    skin = skin,
-                    modifier = Modifier.onGloballyPositioned {
-                        onCardPosition(card.id, it.localToRoot(Offset.Zero))
-                    }
-                )
+        Row(
+            modifier = Modifier.padding(end = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy((-18).dp)
+        ) {
+            meld.cards.forEach { card ->
+                // Reporta la posición real de cada carta: el overlay la usa como target
+                // cuando la carta voladora aterriza en esta combinación.
+                // key(card.id): al llegar cartas nuevas se compone un nodo nuevo, igual
+                // que en la mano (en Android 10 el texto reutilizado no se repinta).
+                key(card.id) {
+                    CardFace(
+                        card = card,
+                        width = CARD_WIDTH,
+                        height = CARD_HEIGHT,
+                        skin = skin,
+                        modifier = Modifier.onGloballyPositioned {
+                            onCardPosition(card.id, it.localToRoot(Offset.Zero))
+                        }
+                    )
+                }
             }
         }
+        if (isTarget) {
+            // Destino destacado: borde pulsante dorado superpuesto sobre el meld,
+            // señala al jugador dónde puede soltar la carta para confirmar el lay-off.
+            TargetRangeHighlight(
+                modifier = Modifier.size(
+                    CARD_WIDTH * meld.cards.size - 18.dp * (meld.cards.size - 1),
+                    CARD_HEIGHT
+                )
+            )
+        }
     }
+}
+
+/** Borde pulsante dorado que marca un meld como destino válido del lay-off. */
+@Composable
+private fun TargetRangeHighlight(
+    modifier: Modifier = Modifier
+) {
+    val transition = rememberInfiniteTransition(label = "targetPulse")
+    val pulse by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(320, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "targetPulseA"
+    )
+    Box(
+        modifier = modifier
+            .graphicsLayer { alpha = pulse }
+            .border(
+                width = 2.dp,
+                color = MedalGold,
+                shape = RoundedCornerShape(6.dp)
+            )
+    )
 }
 
 @Composable
@@ -1439,7 +1626,9 @@ private fun ActionBar(
     notice: String? = null,
     dominantHand: DominantHand,
     /** False mientras el juego está pausado por la animación de llegada de una carta. */
-    interactionEnabled: Boolean = true
+    interactionEnabled: Boolean = true,
+    /** True mientras una carta está en modo objetivo visual (arrastro hacia un meld). */
+    targetActive: Boolean = false
 ) {
     // Botones y texto se alinean según la mano dominante (igual que mazo/pozo).
     val buttonsArrangement = Arrangement.spacedBy(
@@ -1458,6 +1647,8 @@ private fun ActionBar(
             val canLayOff = CariocaBot.findLayOff(st, humanId) != null
             val hint = when {
                 notice != null -> notice
+                targetActive ->
+                    "Arrastra la carta hacia un meld resaltado para añadirla · suelta fuera para cancelar"
                 dragActive -> "Arrastra hacia arriba para descartar · hacia abajo para cancelar"
                 selectedCardId != null ->
                     "Arrastra hacia arriba o doble tap para descartar"
@@ -1508,43 +1699,24 @@ private fun ActionBar(
  */
 @Composable
 private fun PlayChoiceDialog(
-    choice: PlayChoice,
+    options: List<List<Meld>>,
     getCardLabel: (String) -> String,
     onSelectMeld: (List<Meld>) -> Unit,
-    onSelectLayOff: (LayOffAction) -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(
-                when (choice) {
-                    is PlayChoice.Melds -> "Elige cómo bajarte"
-                    is PlayChoice.LayOffs -> "Elige la carta y su destino en la mesa"
-                }
-            )
+            Text("Elige cómo bajarte")
         },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                when (choice) {
-                    is PlayChoice.Melds -> choice.options.forEach { groups ->
-                        TextButton(
-                            onClick = { onSelectMeld(groups) },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(meldDescription(groups, getCardLabel), textAlign = TextAlign.Start)
-                        }
-                    }
-                    is PlayChoice.LayOffs -> choice.options.forEach { action ->
-                        TextButton(
-                            onClick = { onSelectLayOff(action) },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                "Usar ${getCardLabel(action.cardId)} en ${meldTargetLabel(action, getCardLabel)}",
-                                textAlign = TextAlign.Start
-                            )
-                        }
+                options.forEach { groups ->
+                    TextButton(
+                        onClick = { onSelectMeld(groups) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(meldDescription(groups, getCardLabel), textAlign = TextAlign.Start)
                     }
                 }
             }
@@ -1565,17 +1737,6 @@ private fun meldDescription(groups: List<Meld>, getCardLabel: (String) -> String
 private fun suitName(group: Meld): String = when (group) {
     is Meld.Triple -> "Trío "
     is Meld.Run -> "Escala "
-}
-
-/** Descripción del meld destino de un lay-off: "tu escalera 1", "Bot Ana, grupo 2". */
-private fun meldTargetLabel(action: LayOffAction, getCardLabel: (String) -> String): String {
-    val side = when (action.position) {
-        null -> ""
-        com.jarod.card.domain.games.carioca.RunSide.FRONT -> " (inicio)"
-        com.jarod.card.domain.games.carioca.RunSide.BACK -> " (final)"
-    }
-    val owner = if (action.meldOwner == action.playerId) "tu" else "mesa ajena"
-    return "$owner grupo ${action.meldIndex + 1}$side"
 }
 
 @Composable
@@ -1600,7 +1761,16 @@ private fun HandRow(
     /** False mientras el juego está pausado por la animación de llegada de una carta. */
     interactionEnabled: Boolean = true,
     /** ID de la carta que está volando hacia la mano; oculta para evitar duplicación. */
-    drawingCardId: String? = null
+    drawingCardId: String? = null,
+    /** ID de la carta en modo objetivo visual de lay-off (si no es null, arrastrarla
+     *  fuera de la mano reporta la posición global del dedo en vez de reordenar). */
+    targetDragCardId: String? = null,
+    /** Reporta la posición global del dedo mientras se arrastra [targetDragCardId]. */
+    onTargetDragUpdate: (String, Offset) -> Unit = { _, _ -> },
+    /** Se llama al soltar la carta objetivo; el tablero decide confirmar o cancelar. */
+    onTargetDragRelease: () -> Unit = {},
+    /** Carta oculta en la mano (la dibuja la capa de arrastre global por encima). */
+    hiddenCardId: String? = null
 ) {
     val hand = st.hands[humanId] ?: emptyList()
     if (hand.isEmpty()) return
@@ -1669,12 +1839,17 @@ private fun HandRow(
         var dragY by remember { mutableStateOf(0f) }
         var dragAnchor by remember { mutableStateOf(0f) }
         var dragAnchorY by remember { mutableStateOf(0f) }
+        // Origen global del contenedor de la mano: convierte la posición local del
+        // dedo en coordenadas globales para el modo objetivo visual (llevar la
+        // carta hasta un meld de la mesa).
+        var containerRoot by remember { mutableStateOf(Offset.Zero) }
 
         // El gesto vive en el CONTENEDOR (coordenadas estables): así la carta sigue al
         // dedo 1:1, porque la posición no se mide respecto a la carta en movimiento.
         Box(
             Modifier
                 .matchParentSize()
+                .onGloballyPositioned { containerRoot = it.localToRoot(Offset.Zero) }
                 .pointerInput(n, startX, stepPx, cardWidthPx, cardHeightPx, discardEnabled) {
                     val slop = viewConfiguration.touchSlop
                     val boxHeightPx = size.height.toFloat()
@@ -1725,6 +1900,11 @@ private fun HandRow(
                                     }
                                     lastTapCardId = cardId
                                     lastTapTime = now
+                                } else if (dragging && cardId == targetDragCardId) {
+                                    // Modo objetivo visual: al soltar sobre un meld
+                                    // destacado se confirma; si se suelta fuera, el
+                                    // tablero cancela y la carta vuelve a la mano.
+                                    onTargetDragRelease()
                                 } else if (dragging) {
                                     // Un único arrastre: el vector final decide la acción.
                                     when (classifyHandSwipe(
@@ -1777,22 +1957,29 @@ private fun HandRow(
                             } else {
                                 dragX = c.position.x
                                 dragY = c.position.y
-                                // Reordenar en vivo solo si el eje dominante es horizontal;
-                                // así un arrastre vertical no baraja la mano.
-                                if (abs(dragX - down.position.x) > abs(dragY - down.position.y) &&
-                                    n > 1
-                                ) {
-                                    val center = dragX - dragAnchor + cardWidthPx / 2f
-                                    val target = ((center - startX - cardWidthPx / 2f) / stepPx)
-                                        .roundToInt()
-                                        .coerceIn(0, order.lastIndex)
-                                    if (target != dragIndex) {
-                                        order = order.toMutableList().also {
-                                            val moved = it.removeAt(dragIndex)
-                                            it.add(target, moved)
+                                if (cardId == targetDragCardId) {
+                                    // Modo objetivo visual: la carta sigue al dedo en
+                                    // coordenadas GLOBALES del punto del dedo (base de la
+                                    // carta) para cruzar la mesa; no se reordena la mano.
+                                    onTargetDragUpdate(cardId!!, containerRoot + c.position)
+                                } else {
+                                    // Reordenar en vivo solo si el eje dominante es horizontal;
+                                    // así un arrastre vertical no baraja la mano.
+                                    if (abs(dragX - down.position.x) > abs(dragY - down.position.y) &&
+                                        n > 1
+                                    ) {
+                                        val center = dragX - dragAnchor + cardWidthPx / 2f
+                                        val target = ((center - startX - cardWidthPx / 2f) / stepPx)
+                                            .roundToInt()
+                                            .coerceIn(0, order.lastIndex)
+                                        if (target != dragIndex) {
+                                            order = order.toMutableList().also {
+                                                val moved = it.removeAt(dragIndex)
+                                                it.add(target, moved)
+                                            }
+                                            dragIndex = target
+                                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         }
-                                        dragIndex = target
-                                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     }
                                 }
                                 c.consume()
@@ -1930,8 +2117,10 @@ private fun HandRow(
                             shadowElevation = shadowPx * lift
                             shape = RoundedCornerShape(6.dp)
                             // Ocultar la carta mientras vuela desde el mazo/pozo
-                            // para evitar duplicación visual con la carta voladora.
-                            alpha = if (cardId == drawingCardId) 0f else 1f
+                            // para evitar duplicación visual con la carta voladora,
+                            // o mientras se arrastra al modo objetivo (la dibuja la
+                            // capa global que la sigue al dedo por encima del tablero).
+                            alpha = if (cardId == drawingCardId || cardId == hiddenCardId) 0f else 1f
                             // Android 10: escalar un nodo que contiene texto puede perder
                             // el color del número (se ve blanco sobre la carta blanca).
                             // Offscreen rasteriza el contenido a identidad y la escala se
