@@ -118,6 +118,9 @@ import com.jarod.card.core.util.formatClock
 import com.jarod.card.core.util.formatDuration
 import com.jarod.card.core.util.plural
 import com.jarod.card.domain.core.Card
+import com.jarod.card.domain.core.JokerCard
+import com.jarod.card.domain.core.PlayingCard
+import com.jarod.card.domain.core.Suit
 import com.jarod.card.domain.engine.PlayerId
 import com.jarod.card.domain.engine.PlayerRanking
 import com.jarod.card.domain.games.carioca.CariocaBot
@@ -159,6 +162,29 @@ internal const val ARRIVAL_PULSE_PAUSE_MS = 1650L
 
 /** Duración del aviso de acción inválida en el texto informativo (p.ej. JOKER). */
 private const val DISCARD_NOTICE_MS = 2000L
+
+/** Etiqueta corta de una carta ("A♥", "K♠", "J"…) para el selector de jugadas. */
+private fun Card.label(): String = when (this) {
+    is PlayingCard -> rank.symbol + when (suit) {
+        Suit.HEART -> "♥"; Suit.DIAMOND -> "♦"; Suit.SPADE -> "♠"; Suit.CLUB -> "♣"
+    }
+    is JokerCard -> "J"
+}
+
+
+/**
+ * Opción de jugada a elegir cuando el motor encuentra MÁS DE UNA forma válida
+ * de jugar en el turno del humano. El selector muestra una lista y el jugador
+ * decide cuál ejecutar; con una sola opción se ejecuta directo (sin selector).
+ */
+private sealed interface PlayChoice {
+    /** Varias agrupaciones (melds) posibles para bajarse. */
+    data class Melds(val options: List<List<Meld>>) : PlayChoice
+
+    /** Varios lay-offs posibles (carta + combinación de la mesa). */
+    data class LayOffs(val options: List<LayOffAction>) : PlayChoice
+}
+
 
 @Composable
 private fun BoxScope.CountBadge(
@@ -540,6 +566,9 @@ fun GameScreen(
                 onDrawStock = viewModel::drawFromStock,
                 onDrawDiscard = viewModel::drawFromDiscard,
                 onMeld = viewModel::autoMeld,
+                onMeldFor = viewModel::performMeld,
+                onMeldOptions = viewModel::proposeMeldOptions,
+                onLayOffOptions = viewModel::proposeLayOffOptions,
                 onProposeLayOff = viewModel::proposeLayOff,
                 onPerformLayOff = viewModel::performLayOff,
                 onDiscard = viewModel::discard,
@@ -604,6 +633,9 @@ private fun CariocaBoard(
     onDrawStock: () -> Unit,
     onDrawDiscard: () -> Unit,
     onMeld: () -> Unit,
+    onMeldFor: (List<Meld>) -> Unit,
+    onMeldOptions: () -> List<List<Meld>>,
+    onLayOffOptions: () -> List<LayOffAction>,
     onProposeLayOff: () -> LayOffAction?,
     onPerformLayOff: (LayOffAction) -> Unit,
     onDiscard: (String) -> Unit,
@@ -682,23 +714,63 @@ private fun CariocaBoard(
         }
     }
 
+    // Estado del selector de jugadas múltiples: null cuando no hay nada que elegir.
+    var playChoice by remember { mutableStateOf<PlayChoice?>(null) }
+
     // Lay-off: se propone la jugada, se captura el origen de la carta y se
     // aplica; el target se rellena cuando la combinación renderice la carta.
-    val layOffRequest: () -> Unit = {
-        val action = onProposeLayOff()
-        if (action != null) {
-            val card = currentCard(action.cardId)
-            val start = card?.let { flying.positions[it.id] }
-            val launched = card != null && start != null
-            if (launched) {
-                interactionLocked = true
-                flying.launch(card, start)
-                scope.launch {
-                    delay(ARRIVAL_PULSE_PAUSE_MS)
-                    releaseInteractionLock()
-                }
+    // Si hay más de una jugada posible se abre el selector para que el jugador
+    // elija qué carta / combinación usar; con una sola se ejecuta directo.
+    fun executeLayOff(action: LayOffAction) {
+        val card = currentCard(action.cardId)
+        val start = card?.let { flying.positions[it.id] }
+        val launched = card != null && start != null
+        if (launched) {
+            interactionLocked = true
+            flying.launch(card, start)
+            scope.launch {
+                delay(ARRIVAL_PULSE_PAUSE_MS)
+                releaseInteractionLock()
             }
-            onPerformLayOff(action)
+        }
+        onPerformLayOff(action)
+    }
+
+    val layOffRequest: () -> Unit = {
+        val options = onLayOffOptions()
+        when {
+            options.isEmpty() -> Unit
+            options.size == 1 -> executeLayOff(options.single())
+            else -> playChoice = PlayChoice.LayOffs(options)
+        }
+    }
+
+    // Swipe ↑ sobre una carta de la mano: intenta jugarla como lay-off. Si solo
+    // hay un destino se ejecuta directo; si hay varios se abre el selector;
+    // si no hay ninguno se devuelve false para que la mano caiga al descarte.
+    val swipeUpCard: (String) -> Boolean = { cardId ->
+        val options = onLayOffOptions().filter { it.cardId == cardId }
+        when {
+            options.isEmpty() -> false
+            options.size == 1 -> {
+                executeLayOff(options.single())
+                true
+            }
+            else -> {
+                playChoice = PlayChoice.LayOffs(options)
+                true
+            }
+        }
+    }
+
+    // Bajarse: si hay varias agrupaciones (melds) posibles (p.ej. distribuciones
+    // alternativas de jokers) se abre el selector; con una sola se ejecuta directo.
+    val meldRequest: () -> Unit = {
+        val options = onMeldOptions()
+        when {
+            options.isEmpty() -> Unit
+            options.size == 1 -> onMeld()
+            else -> playChoice = PlayChoice.Melds(options)
         }
     }
 
@@ -770,7 +842,7 @@ private fun CariocaBoard(
                 )
             }
 
-            ActionBar(st, humanId, myTurn, selectedCardId, dragActive, onMeld, layOffRequest,
+            ActionBar(st, humanId, myTurn, selectedCardId, dragActive, meldRequest, layOffRequest,
                 notice = discardNotice,
                 dominantHand = dominantHand,
                 interactionEnabled = !interactionLocked)
@@ -788,6 +860,7 @@ private fun CariocaBoard(
                 onCanDiscard = onCanDiscard,
                 onDiscardRejected = { showDiscardNotice("No puedes descartar esta carta") },
                 onCardPosition = flying::reportPosition,
+                onSwipeUpCard = swipeUpCard,
                 selectedCardId = selectedCardId,
                 onSelectionChange = { selectedCardId = it },
                 onDragActiveChange = { dragActive = it },
@@ -816,6 +889,33 @@ private fun CariocaBoard(
                 st = st,
                 humanId = humanId,
                 onDismiss = { showBotsInspection = false }
+            )
+        }
+
+        val currentChoice = playChoice
+        // Si la jugada deja de ser viable mientras el selector está abierto (por
+        // ejemplo el turno pasa al actualizar el estado), se cierra solo.
+        LaunchedEffect(currentChoice, st.currentPlayer, st.stage, st.phase) {
+            if (currentChoice != null &&
+                (st.phase != CariocaPhase.PLAYING || st.stage != Stage.ACTIONS ||
+                    st.currentPlayer != humanId)
+            ) {
+                playChoice = null
+            }
+        }
+        if (currentChoice != null) {
+            PlayChoiceDialog(
+                choice = currentChoice,
+                getCardLabel = { id -> currentSt.hands[currentHumanId]?.firstOrNull { it.id == id }?.label() ?: "?" },
+                onSelectMeld = { groups ->
+                    playChoice = null
+                    onMeldFor(groups)
+                },
+                onSelectLayOff = { action ->
+                    playChoice = null
+                    executeLayOff(action)
+                },
+                onDismiss = { playChoice = null }
             )
         }
     }
@@ -1344,6 +1444,83 @@ private fun ActionBar(
     }
 }
 
+/**
+ * Selector de jugada cuando el motor encuentra MÁS DE UNA forma válida de jugar
+ * (bajarse con varias agrupaciones, o varios lay-offs posibles). Muestra cada
+ * opción como una fila y el jugador elige cuál ejecutar.
+ */
+@Composable
+private fun PlayChoiceDialog(
+    choice: PlayChoice,
+    getCardLabel: (String) -> String,
+    onSelectMeld: (List<Meld>) -> Unit,
+    onSelectLayOff: (LayOffAction) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                when (choice) {
+                    is PlayChoice.Melds -> "Elige cómo bajarte"
+                    is PlayChoice.LayOffs -> "Elige la carta y su destino en la mesa"
+                }
+            )
+        },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                when (choice) {
+                    is PlayChoice.Melds -> choice.options.forEach { groups ->
+                        TextButton(
+                            onClick = { onSelectMeld(groups) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(meldDescription(groups, getCardLabel), textAlign = TextAlign.Start)
+                        }
+                    }
+                    is PlayChoice.LayOffs -> choice.options.forEach { action ->
+                        TextButton(
+                            onClick = { onSelectLayOff(action) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                "Usar ${getCardLabel(action.cardId)} en ${meldTargetLabel(action, getCardLabel)}",
+                                textAlign = TextAlign.Start
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        }
+    )
+}
+
+/** Descripción legible de una agrupación (melds) para el selector: "G1: A♥ K♥ · G2: 7♦ 8♦". */
+private fun meldDescription(groups: List<Meld>, getCardLabel: (String) -> String): String {
+    return groups.mapIndexed { i, group ->
+        "${suitName(group)}${i + 1}: ${group.cards.joinToString(" ") { getCardLabel(it.id) }}"
+    }.joinToString("  ·  ")
+}
+
+private fun suitName(group: Meld): String = when (group) {
+    is Meld.Triple -> "Trío "
+    is Meld.Run -> "Escala "
+}
+
+/** Descripción del meld destino de un lay-off: "tu escalera 1", "Bot Ana, grupo 2". */
+private fun meldTargetLabel(action: LayOffAction, getCardLabel: (String) -> String): String {
+    val side = when (action.position) {
+        null -> ""
+        com.jarod.card.domain.games.carioca.RunSide.FRONT -> " (inicio)"
+        com.jarod.card.domain.games.carioca.RunSide.BACK -> " (final)"
+    }
+    val owner = if (action.meldOwner == action.playerId) "tu" else "mesa ajena"
+    return "$owner grupo ${action.meldIndex + 1}$side"
+}
+
 @Composable
 private fun HandRow(
     st: CariocaState,
@@ -1354,6 +1531,12 @@ private fun HandRow(
     onCanDiscard: (String) -> Boolean,
     onDiscardRejected: () -> Unit,
     onCardPosition: (String, Offset) -> Unit,
+    /**
+     * Swipe ↑ sobre una carta concreta: intenta jugarla como lay-off (o abrir el
+     * selector si hay varios destinos). Devuelve true si el lay-off fue gestionado;
+     * false para que la mano caiga al descarte normal.
+     */
+    onSwipeUpCard: (String) -> Boolean = { false },
     selectedCardId: String?,
     onSelectionChange: (String?) -> Unit,
     onDragActiveChange: (Boolean) -> Unit,
@@ -1613,15 +1796,18 @@ private fun HandRow(
                 )
 
                 // Al confirmar (swipe ↑ o doble tap) la carta sale de la mano y el
-                // overlay de cartas voladoras la anima hasta su target real. Si el
-                // descarte es INVALIDO no se pide la acción y la carta queda en su
-                // lugar (sin animación: acciones inválidas no vuelan).
+                // overlay de cartas voladoras la anima hasta su target real. Primero
+                // se intenta el lay-off de ESA carta; si no aplica se cae al descarte
+                // y, si es INVALIDO, no se pide la acción (la carta queda en su lugar).
                 LaunchedEffect(isConfirmed) {
                     if (isConfirmed) {
-                        if (onCanDiscard(cardId)) {
-                            onDiscardRequest(cardId)
-                        } else {
-                            onDiscardRejected()
+                        val handled = onSwipeUpCard(cardId)
+                        if (!handled) {
+                            if (onCanDiscard(cardId)) {
+                                onDiscardRequest(cardId)
+                            } else {
+                                onDiscardRejected()
+                            }
                         }
                         confirmedCardId = null
                         onSelectionChange(null)
