@@ -6,6 +6,7 @@ node_modules/
 dist/
 *.apk
 *.aab
+app/release
 
 # IDE
 .idea/
@@ -65,5 +66,6 @@ terraform/**/.terraform/
 terraform/**/*.tfstate
 terraform/**/*.tfstate.*
 terraform/**/crash.log
+terraform/**/.terraform.lock.hcl
 terraform/**/.tfvars
 !terraform/**/terraform.tfvars
