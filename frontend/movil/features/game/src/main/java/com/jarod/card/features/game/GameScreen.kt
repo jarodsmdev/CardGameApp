@@ -893,6 +893,16 @@ private fun CariocaBoard(
         }
 
         val currentChoice = playChoice
+        // Si la jugada deja de ser viable mientras el selector está abierto (por
+        // ejemplo el turno pasa al actualizar el estado), se cierra solo.
+        LaunchedEffect(currentChoice, st.currentPlayer, st.stage, st.phase) {
+            if (currentChoice != null &&
+                (st.phase != CariocaPhase.PLAYING || st.stage != Stage.ACTIONS ||
+                    st.currentPlayer != humanId)
+            ) {
+                playChoice = null
+            }
+        }
         if (currentChoice != null) {
             PlayChoiceDialog(
                 choice = currentChoice,
@@ -1453,7 +1463,7 @@ private fun PlayChoiceDialog(
             Text(
                 when (choice) {
                     is PlayChoice.Melds -> "Elige cómo bajarte"
-                    is PlayChoice.LayOffs -> "¿Qué carta juegas?"
+                    is PlayChoice.LayOffs -> "Elige la carta y su destino en la mesa"
                 }
             )
         },
